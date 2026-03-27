@@ -96,10 +96,20 @@
     const second = firstRow !== lastRow ? (matrix[lastRow] || []) : [];
     const width = Math.max(first.length, second.length);
     const headers = [];
+    /* Track the last non-empty parent header so sub-columns inherit it */
+    let lastParent = '';
     for (let index = 0; index < width; index += 1) {
       const top = utils.safeText(first[index]);
       const bottom = utils.safeText(second[index]);
-      headers.push(top && bottom ? `${top} | ${bottom}` : top || bottom || `Колонка ${index + 1}`);
+      if (top) lastParent = top;
+      if (top && bottom) {
+        headers.push(`${top} | ${bottom}`);
+      } else if (bottom && !top && lastParent) {
+        /* Sub-header without its own parent — inherit the last parent */
+        headers.push(`${lastParent} | ${bottom}`);
+      } else {
+        headers.push(top || bottom || `Колонка ${index + 1}`);
+      }
     }
     return headers;
   }

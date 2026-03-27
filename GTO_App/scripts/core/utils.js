@@ -18,16 +18,20 @@
       if (!value) return null;
       if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
       const str = String(value).trim();
-      /* Try dd.mm.yyyy (Russian format) */
-      const ruMatch = str.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+      /* Try dd.mm.yyyy or dd.mm.yy (Russian format) */
+      const ruMatch = str.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})$/);
       if (ruMatch) {
-        const date = new Date(Number(ruMatch[3]), Number(ruMatch[2]) - 1, Number(ruMatch[1]));
+        let year = Number(ruMatch[3]);
+        if (year < 100) year += year > 50 ? 1900 : 2000;
+        const date = new Date(year, Number(ruMatch[2]) - 1, Number(ruMatch[1]));
         return Number.isNaN(date.getTime()) ? null : date;
       }
-      /* Try dd/mm/yyyy */
-      const slashMatch = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-      if (slashMatch) {
-        const date = new Date(Number(slashMatch[3]), Number(slashMatch[2]) - 1, Number(slashMatch[1]));
+      /* Try M/D/YY or M/D/YYYY (American format from Excel/ASU) */
+      const usMatch = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+      if (usMatch) {
+        let year = Number(usMatch[3]);
+        if (year < 100) year += year > 50 ? 1900 : 2000;
+        const date = new Date(year, Number(usMatch[1]) - 1, Number(usMatch[2]));
         return Number.isNaN(date.getTime()) ? null : date;
       }
       /* Try ISO and other formats via Date constructor */

@@ -105,7 +105,9 @@
       const stageMeta = participant.stage ? { stageName: participant.stage, label: participant.stage } : calculations.resolveStage(ageValue, stages);
       const documentSeries = participant.documentSeries || asuRecord.documentSeries || '';
       const documentNumberPart = participant.documentNumberPart || asuRecord.documentNumber || '';
-      const documentNumber = participant.documentNumber || [documentSeries, documentNumberPart].filter(Boolean).join(' ').trim();
+      const documentNumber = participant.documentNumber || (documentSeries && documentNumberPart
+        ? `${documentSeries} №${documentNumberPart}`
+        : documentSeries || (documentNumberPart ? `№${documentNumberPart}` : ''));
       const address = participant.address || normalizer.buildAddress(asuRecord);
 
       const row = {
@@ -115,8 +117,7 @@
         uin: valueMeta(participant.uin || config.placeholders.missing, !participant.uin || participant.uin === config.placeholders.missing),
         gender: valueMeta(gender || config.placeholders.missing, !gender),
         schoolName: valueMeta(schoolName, !state.meta.schoolName && !participant.schoolName),
-        stage: valueMeta(stageMeta ? stageMeta.stageName : config.placeholders.missing, !stageMeta),
-        stageDisplay: stageMeta ? stageMeta.label : config.placeholders.missing,
+        stage: valueMeta(stageMeta ? stageMeta.label : config.placeholders.missing, !stageMeta),
         birthDateRaw: valueMeta(birthDateRaw || config.placeholders.missing, !birthDateRaw),
         birthDateDisplay: utils.formatDate(birthDateRaw) || config.placeholders.missing,
         age: valueMeta(ageValue === null || ageValue === undefined ? config.placeholders.missing : String(ageValue), ageValue === null || ageValue === undefined),

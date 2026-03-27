@@ -298,7 +298,7 @@
               ${reviewCell(row.uin)}
               ${reviewCell(row.gender)}
               ${reviewCell(row.schoolName)}
-              <td class="${row.stage.problem ? 'cell-danger' : ''}" title="${escapeHtml(row.stageDisplay)}">${escapeHtml(row.stage.value)}</td>
+              ${reviewCell(row.stage)}
               <td class="${row.birthDateRaw.problem ? 'cell-danger' : ''}">${escapeHtml(row.birthDateDisplay)}</td>
               ${reviewCell(row.age)}
               ${reviewCell(row.documentNumber)}
