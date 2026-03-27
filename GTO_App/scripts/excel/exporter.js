@@ -3,18 +3,30 @@
   const { config, utils } = window.GTOApp;
   const warningFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF4CCCC' } };
 
+  /* Deep-clone a plain object (fonts, borders, alignments) */
+  function deepClone(obj) { return JSON.parse(JSON.stringify(obj)); }
+
   /* Copy cell style (font, border, alignment, numFmt) from a source row to a target row */
   function copyRowStyle(sourceRow, targetRow, colCount) {
     targetRow.height = sourceRow.height;
     for (let col = 1; col <= colCount; col += 1) {
       const src = sourceRow.getCell(col);
       const tgt = targetRow.getCell(col);
-      if (src.font) tgt.font = Object.assign({}, src.font);
-      if (src.border) tgt.border = Object.assign({}, src.border);
-      if (src.alignment) tgt.alignment = Object.assign({}, src.alignment);
+      if (src.font) tgt.font = deepClone(src.font);
+      if (src.border) tgt.border = deepClone(src.border);
+      if (src.alignment) tgt.alignment = deepClone(src.alignment);
       if (src.numFmt) tgt.numFmt = src.numFmt;
     }
   }
+
+  /* Clear cell completely: reset value and all styling */
+  function clearCell(cell) {
+    cell.value = null;
+    cell.style = {};
+  }
+
+  /* Style for footer text (matches template: Calibri 11, black, left-aligned) */
+  const footerFont = { size: 11, color: { argb: 'FF000000' }, name: 'Calibri', family: 2, charset: 1 };
 
   async function exportApplication(state, rows) {
     if (!state.files.template) throw new Error('Во встроенном шаблоне заявки нет данных.');
@@ -29,14 +41,51 @@
     const startRow = state.analysis.template.dataStartRow + 1;
     const colCount = 11;
 
-    /* Capture style from the first data row in the template for new rows */
-    const styleSourceRow = sheet.getRow(startRow);
+    /* Snapshot style from the first data row BEFORE any modifications */
+    const templateRow = sheet.getRow(startRow);
+    const cellStyles = [];
+    for (let col = 1; col <= colCount; col += 1) {
+      const src = templateRow.getCell(col);
+      cellStyles.push({
+        font: src.font ? deepClone(src.font) : null,
+        border: src.border ? deepClone(src.border) : null,
+        alignment: src.alignment ? deepClone(src.alignment) : null,
+        numFmt: src.numFmt || null
+      });
+    }
+    const templateRowHeight = templateRow.height;
 
-    /* Write participant data */
+    /* Apply snapshotted style to a row */
+    function applyStyle(targetRow) {
+      targetRow.height = templateRowHeight;
+      for (let col = 1; col <= colCount; col += 1) {
+        const tgt = targetRow.getCell(col);
+        const style = cellStyles[col - 1];
+        if (style.font) tgt.font = deepClone(style.font);
+        if (style.border) tgt.border = deepClone(style.border);
+        if (style.alignment) tgt.alignment = deepClone(style.alignment);
+        if (style.numFmt) tgt.numFmt = style.numFmt;
+      }
+    }
+
+    /* --- Clear ALL old template data rows + footer BEFORE writing new data --- */
+    /* This avoids ExcelJS shared-style mutation issues (clearing after writing can destroy borders) */
+    const templateSummaryRow = state.analysis.template.summaryRowIndex + 1;
+    const templateDateRow = state.analysis.template.dateRowIndex + 1;
+    const lastOldRow = Math.max(templateDateRow, templateSummaryRow) + 2;
+    const dataEndRow = startRow + rows.length; /* first empty row after data */
+
+    for (let rowIndex = startRow; rowIndex <= lastOldRow; rowIndex += 1) {
+      const row = sheet.getRow(rowIndex);
+      for (let col = 1; col <= colCount; col += 1) {
+        clearCell(row.getCell(col));
+      }
+    }
+
+    /* Write participant data with fresh styles applied AFTER clearing */
     rows.forEach((rowData, index) => {
       const row = sheet.getRow(startRow + index);
-      /* Ensure styling is applied to all rows (not just template rows) */
-      if (index > 0) copyRowStyle(styleSourceRow, row, colCount);
+      applyStyle(row);
 
       row.getCell(1).value = index + 1;
       row.getCell(2).value = rowData.fullName.value;
@@ -57,39 +106,34 @@
       });
     });
 
-    /* Clear any leftover rows between the last data row and the original template's footer area */
-    const templateSummaryRow = state.analysis.template.summaryRowIndex + 1;
-    const templateDirectorRow = state.analysis.template.directorRowIndex + 1;
-    const templateDateRow = state.analysis.template.dateRowIndex + 1;
-    const dataEndRow = startRow + rows.length;
+    /* --- Write footer right after the data --- */
+    /* One empty row gap after data, then summary/director/date */
+    const footerStart = dataEndRow + 1;
 
-    for (let rowIndex = dataEndRow; rowIndex < templateSummaryRow; rowIndex += 1) {
-      const row = sheet.getRow(rowIndex);
-      for (let col = 1; col <= colCount; col += 1) {
-        row.getCell(col).value = null;
-        row.getCell(col).fill = {};
-      }
-    }
+    /* "Утверждено к допуску: N человек" */
+    const summaryCell = sheet.getRow(footerStart).getCell(2);
+    summaryCell.value = `Утверждено к допуску: ${rows.length} человек`;
+    summaryCell.font = footerFont;
+    summaryCell.alignment = { horizontal: 'left' };
 
-    /* Update summary row */
-    if (templateSummaryRow > 0) {
-      const summaryRow = sheet.getRow(templateSummaryRow);
-      summaryRow.getCell(2).value = `Утверждено к допуску: ${rows.length} человек`;
-    }
+    /* "Директор" + ФИО */
+    const directorLabelCell = sheet.getRow(footerStart + 1).getCell(2);
+    directorLabelCell.value = 'Директор';
+    directorLabelCell.font = footerFont;
+    directorLabelCell.alignment = { horizontal: 'left' };
 
-    /* Update director row */
-    if (templateDirectorRow > 0) {
-      const directorCell = sheet.getRow(templateDirectorRow).getCell(3);
-      directorCell.value = state.meta.director || config.placeholders.missing;
-      if (!state.meta.director) directorCell.fill = warningFill;
-    }
+    const directorNameCell = sheet.getRow(footerStart + 1).getCell(3);
+    directorNameCell.value = state.meta.director || config.placeholders.missing;
+    directorNameCell.font = footerFont;
+    directorNameCell.alignment = { horizontal: 'center' };
+    if (!state.meta.director) directorNameCell.fill = warningFill;
 
-    /* Update date row */
-    if (templateDateRow > 0) {
-      const dateCell = sheet.getRow(templateDateRow).getCell(2);
-      dateCell.value = `Дата: ${utils.formatDate(state.meta.submissionDate) || config.placeholders.missing}`;
-      if (!state.meta.submissionDate) dateCell.fill = warningFill;
-    }
+    /* "Дата: dd.mm.yyyy" */
+    const dateCell = sheet.getRow(footerStart + 2).getCell(2);
+    dateCell.value = `Дата: ${utils.formatDate(state.meta.submissionDate) || config.placeholders.missing}`;
+    dateCell.font = footerFont;
+    dateCell.alignment = { horizontal: 'left' };
+    if (!state.meta.submissionDate) dateCell.fill = warningFill;
 
     /* Update header area: school name and submission date */
     sheet.getCell('C3').value = state.meta.schoolName || config.placeholders.missing;
