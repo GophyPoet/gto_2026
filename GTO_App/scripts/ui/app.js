@@ -173,7 +173,7 @@
         <strong>${escapeHtml(title)}</strong>
         ${Object.entries(mapping || {}).map(([field, value]) => `
           <label>
-            <span>${escapeHtml(field)}</span>
+            <span>${escapeHtml(config.fieldLabels[field] || field)}</span>
             <select data-prefix="${prefix}" data-field="${field}">
               <option value="">Не выбрано</option>
               ${headers.map((header, index) => `<option value="${index}" ${String(value) === String(index) ? 'selected' : ''}>${escapeHtml(header)}</option>`).join('')}
@@ -298,7 +298,7 @@
               ${reviewCell(row.uin)}
               ${reviewCell(row.gender)}
               ${reviewCell(row.schoolName)}
-              ${reviewCell(row.stage)}
+              <td class="${row.stage.problem ? 'cell-danger' : ''}" title="${escapeHtml(row.stageDisplay)}">${escapeHtml(row.stage.value)}</td>
               <td class="${row.birthDateRaw.problem ? 'cell-danger' : ''}">${escapeHtml(row.birthDateDisplay)}</td>
               ${reviewCell(row.age)}
               ${reviewCell(row.documentNumber)}

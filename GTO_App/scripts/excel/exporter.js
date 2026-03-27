@@ -22,8 +22,7 @@
       row.getCell(4).value = rowData.gender.value;
       row.getCell(5).value = rowData.schoolName.value;
       row.getCell(6).value = rowData.stage.value;
-      const birthDate = utils.parseDateValue(rowData.birthDateRaw.value);
-      row.getCell(7).value = birthDate || config.placeholders.missing;
+      row.getCell(7).value = rowData.birthDateDisplay || config.placeholders.missing;
       row.getCell(8).value = rowData.age.value;
       row.getCell(9).value = rowData.documentNumber.value;
       row.getCell(10).value = rowData.className.value;
@@ -36,7 +35,8 @@
     });
 
     const summaryRowIndex = state.analysis.template.summaryRowIndex;
-    for (let rowIndex = startRow + rows.length; rowIndex < summaryRowIndex; rowIndex += 1) {
+    /* summaryRowIndex is 0-based matrix index; +1 converts to ExcelJS 1-based row */
+    for (let rowIndex = startRow + rows.length; rowIndex < summaryRowIndex + 1; rowIndex += 1) {
       const row = sheet.getRow(rowIndex);
       for (let cellIndex = 1; cellIndex <= 11; cellIndex += 1) {
         row.getCell(cellIndex).value = null;

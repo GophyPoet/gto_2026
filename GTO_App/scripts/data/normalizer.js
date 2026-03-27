@@ -26,8 +26,8 @@
     },
     toGenderLabel(value) {
       const source = normalizer.normalizeHeader(value);
-      if (source === 'м' || source.includes('муж')) return 'мужской';
-      if (source === 'ж' || source.includes('жен')) return 'женский';
+      if (source === 'м' || source === 'male' || source.includes('муж') || source.includes('мальч')) return 'М';
+      if (source === 'ж' || source === 'female' || source.includes('жен') || source.includes('девоч')) return 'Ж';
       return '';
     },
     joinFio(parts) {
@@ -43,7 +43,7 @@
       const building = String(record.residenceBuilding || '').trim();
       const apartment = String(record.residenceApartment || '').trim();
       const parts = [];
-      if (locality && locality.toLowerCase() !== 'тольятти') parts.push(locality);
+      if (locality) parts.push(locality);
       if (street) parts.push(street);
       if (house) parts.push(`д. ${house}`);
       if (building) parts.push(`корп. ${building}`);

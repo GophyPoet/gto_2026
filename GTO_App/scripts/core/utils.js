@@ -17,7 +17,21 @@
     parseDateValue(value) {
       if (!value) return null;
       if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
-      const date = new Date(value);
+      const str = String(value).trim();
+      /* Try dd.mm.yyyy (Russian format) */
+      const ruMatch = str.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+      if (ruMatch) {
+        const date = new Date(Number(ruMatch[3]), Number(ruMatch[2]) - 1, Number(ruMatch[1]));
+        return Number.isNaN(date.getTime()) ? null : date;
+      }
+      /* Try dd/mm/yyyy */
+      const slashMatch = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (slashMatch) {
+        const date = new Date(Number(slashMatch[3]), Number(slashMatch[2]) - 1, Number(slashMatch[1]));
+        return Number.isNaN(date.getTime()) ? null : date;
+      }
+      /* Try ISO and other formats via Date constructor */
+      const date = new Date(str);
       return Number.isNaN(date.getTime()) ? null : date;
     },
     formatDate(value) {
