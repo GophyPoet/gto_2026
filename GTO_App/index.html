@@ -85,15 +85,14 @@
               <input id="schoolFileInput" type="file" accept=".xlsx,.xls">
             </label>
             <label class="upload-card">
-              <span class="upload-title">Шаблон заявки</span>
-              <span class="upload-hint">Эталонный файл для выгрузки</span>
-              <input id="templateFileInput" type="file" accept=".xlsx">
-            </label>
-            <label class="upload-card">
               <span class="upload-title">Список обучающихся АСУ РСО</span>
               <span class="upload-hint">Пол, дата рождения, документ, адрес</span>
               <input id="asuFileInput" type="file" accept=".xlsx,.xls">
             </label>
+            <div class="upload-card upload-card-static">
+              <span class="upload-title">Встроенный шаблон заявки</span>
+              <span class="upload-hint">Используется образец `ЗаявкаШколы71_ГТО.xlsx`, уже встроенный в проект</span>
+            </div>
           </div>
 
           <div class="actions-row">
@@ -209,6 +208,7 @@
   <script src="assets/vendor/xlsx.full.min.js"></script>
   <script src="assets/vendor/exceljs.min.js"></script>
   <script src="scripts/core/config.js"></script>
+  <script src="scripts/core/builtin-template.js"></script>
   <script src="scripts/core/utils.js"></script>
   <script src="scripts/core/logger.js"></script>
   <script src="scripts/core/storage.js"></script>

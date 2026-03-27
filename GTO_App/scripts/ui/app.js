@@ -14,7 +14,6 @@
     submissionDateInput: document.getElementById('submissionDateInput'),
     eventDateInput: document.getElementById('eventDateInput'),
     schoolFileInput: document.getElementById('schoolFileInput'),
-    templateFileInput: document.getElementById('templateFileInput'),
     asuFileInput: document.getElementById('asuFileInput'),
     analyzeBtn: document.getElementById('analyzeBtn'),
     chooseFolderBtn: document.getElementById('chooseFolderBtn'),
@@ -338,7 +337,7 @@
     if (nextIndex < 0 || nextIndex >= config.steps.length) return;
     const nextStep = config.steps[nextIndex];
     if (!canOpenStep(nextStep.id)) {
-      if (nextStep.id === 'select') alert('Сначала загрузите и проанализируйте три файла.');
+      if (nextStep.id === 'select') alert('Сначала загрузите и проанализируйте два файла.');
       if (nextStep.id === 'review') alert('Сначала выберите хотя бы одного участника.');
       return;
     }
@@ -348,16 +347,16 @@
 
   async function analyzeFiles() {
     const schoolFile = els.schoolFileInput.files[0];
-    const templateFile = els.templateFileInput.files[0];
     const asuFile = els.asuFileInput.files[0];
-    if (!schoolFile || !templateFile || !asuFile) {
-      alert('Нужно загрузить три файла: школьную базу, шаблон заявки и список АСУ РСО.');
+    if (!schoolFile || !asuFile) {
+      alert('Нужно загрузить два файла: школьную базу и список АСУ РСО.');
       return;
     }
 
+    const builtinTemplate = window.GTOApp.builtinTemplate;
     const files = {
       school: await utils.serializeFile(schoolFile),
-      template: await utils.serializeFile(templateFile),
+      template: builtinTemplate,
       asu: await utils.serializeFile(asuFile)
     };
     appState.setFiles(files);

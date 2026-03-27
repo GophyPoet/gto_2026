@@ -4,7 +4,7 @@
   const warningFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF4CCCC' } };
 
   async function exportApplication(state, rows) {
-    if (!state.files.template) throw new Error('Не загружен шаблон заявки.');
+    if (!state.files.template) throw new Error('Во встроенном шаблоне заявки нет данных.');
 
     const workbook = new ExcelJS.Workbook();
     const templateBytes = utils.base64ToUint8Array(state.files.template.base64);
