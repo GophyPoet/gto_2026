@@ -29,7 +29,9 @@
       if (!matrix.length) return;
       const headerRowIndex = findSchoolHeaderRow(matrix);
       const headers = matrix[headerRowIndex].map((cell) => utils.safeText(cell));
-      const selection = manualSelection || mapper.mappingToSelectable(headers, mapper.matchSchoolHeaders(headers));
+      const selection = (manualSelection && Object.keys(manualSelection).length > 0)
+        ? manualSelection
+        : mapper.mappingToSelectable(headers, mapper.matchSchoolHeaders(headers));
       const resolved = mapper.resolveSelection(selection, headers);
       const rows = matrix.slice(headerRowIndex + 1).filter((row) => row.some((cell) => utils.safeText(cell)));
       const students = rows.map((row, index) => {
@@ -79,7 +81,9 @@
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const matrix = sheetToMatrix(sheet);
     const headers = buildCombinedAsuHeaders(matrix);
-    const selection = manualSelection || mapper.mappingToSelectable(headers, mapper.matchAsuHeaders(headers));
+    const selection = (manualSelection && Object.keys(manualSelection).length > 0)
+      ? manualSelection
+      : mapper.mappingToSelectable(headers, mapper.matchAsuHeaders(headers));
     const resolved = mapper.resolveSelection(selection, headers);
     const rows = matrix.slice(10).filter((row) => row.some((cell) => utils.safeText(cell)));
     const records = rows.map((row, index) => {
