@@ -363,9 +363,10 @@
         asu: await utils.serializeFile(asuFile)
       };
       appState.setFiles(files);
+      /* Force fresh auto-detection — do NOT pass stale mappings from localStorage */
       appState.setAnalysis({
-        school: excelReader.parseSchoolWorkbook(files.school, appState.getState().mappings.school),
-        asu: excelReader.parseAsuWorkbook(files.asu, appState.getState().mappings.asu),
+        school: excelReader.parseSchoolWorkbook(files.school, null),
+        asu: excelReader.parseAsuWorkbook(files.asu, null),
         template: excelReader.parseTemplateWorkbook(files.template),
         issues: []
       });
