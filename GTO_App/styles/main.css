@@ -115,6 +115,22 @@ input[type="text"], input[type="date"], input[type="search"], select {
   border-style: dashed;
 }
 
+.upload-card--has-file {
+  border-color: var(--accent);
+  background: linear-gradient(180deg, #f0faf2, #e6f5ea);
+}
+
+.upload-file-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent-strong, #2a7a3b);
+  word-break: break-all;
+}
+
+.upload-file-name:not(:empty)::before {
+  content: '✓ ';
+}
+
 .upload-title { margin: 0; font-size: 18px; font-weight: 700; }
 .upload-hint { color: var(--muted); }
 .stack { display: grid; gap: 16px; }

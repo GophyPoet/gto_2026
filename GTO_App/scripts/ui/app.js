@@ -353,26 +353,36 @@
       return;
     }
 
-    const builtinTemplate = window.GTOApp.builtinTemplate;
-    const files = {
-      school: await utils.serializeFile(schoolFile),
-      template: builtinTemplate,
-      asu: await utils.serializeFile(asuFile)
-    };
-    appState.setFiles(files);
-    appState.setAnalysis({
-      school: excelReader.parseSchoolWorkbook(files.school, appState.getState().mappings.school),
-      asu: excelReader.parseAsuWorkbook(files.asu, appState.getState().mappings.asu),
-      template: excelReader.parseTemplateWorkbook(files.template),
-      issues: []
-    });
-    const snapshot = appState.getState();
-    appState.setMappings({
-      school: snapshot.analysis.school.classes[0] ? snapshot.analysis.school.classes[0].mapping : {},
-      asu: snapshot.analysis.asu.mapping
-    });
-    appState.buildStructureReport();
-    render();
+    els.analyzeBtn.disabled = true;
+    els.analyzeBtn.textContent = 'Анализ…';
+    try {
+      const builtinTemplate = window.GTOApp.builtinTemplate;
+      const files = {
+        school: await utils.serializeFile(schoolFile),
+        template: builtinTemplate,
+        asu: await utils.serializeFile(asuFile)
+      };
+      appState.setFiles(files);
+      appState.setAnalysis({
+        school: excelReader.parseSchoolWorkbook(files.school, appState.getState().mappings.school),
+        asu: excelReader.parseAsuWorkbook(files.asu, appState.getState().mappings.asu),
+        template: excelReader.parseTemplateWorkbook(files.template),
+        issues: []
+      });
+      const snapshot = appState.getState();
+      appState.setMappings({
+        school: snapshot.analysis.school.classes[0] ? snapshot.analysis.school.classes[0].mapping : {},
+        asu: snapshot.analysis.asu.mapping
+      });
+      appState.buildStructureReport();
+      render();
+    } catch (error) {
+      logger.error(error);
+      alert('Ошибка при анализе файлов: ' + (error.message || String(error)));
+    } finally {
+      els.analyzeBtn.disabled = false;
+      els.analyzeBtn.textContent = 'Проанализировать файлы';
+    }
   }
 
   function reanalyzeStoredFiles() {
@@ -434,10 +444,31 @@
     });
   }
 
+  function updateUploadCardLabel(input) {
+    const card = input.closest('.upload-card');
+    if (!card) return;
+    let fileNameEl = card.querySelector('.upload-file-name');
+    if (!fileNameEl) {
+      fileNameEl = document.createElement('span');
+      fileNameEl.className = 'upload-file-name';
+      card.appendChild(fileNameEl);
+    }
+    const file = input.files[0];
+    if (file) {
+      fileNameEl.textContent = file.name;
+      card.classList.add('upload-card--has-file');
+    } else {
+      fileNameEl.textContent = '';
+      card.classList.remove('upload-card--has-file');
+    }
+  }
+
   function bindActions() {
     els.prevStepBtn.addEventListener('click', () => moveStep(-1));
     els.nextStepBtn.addEventListener('click', () => moveStep(1));
     els.analyzeBtn.addEventListener('click', analyzeFiles);
+    els.schoolFileInput.addEventListener('change', () => updateUploadCardLabel(els.schoolFileInput));
+    els.asuFileInput.addEventListener('change', () => updateUploadCardLabel(els.asuFileInput));
     els.chooseFolderBtn.addEventListener('click', async () => {
       try {
         directoryHandle = await storage.chooseDirectory();
