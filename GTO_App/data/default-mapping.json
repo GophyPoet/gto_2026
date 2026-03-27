@@ -1,0 +1,24 @@
+{
+  "schoolFile": {
+    "order": ["№ п/п", "номер"],
+    "fullName": ["ФИО", "Ф.И.О."],
+    "uin": ["УИН", "WIN", "УИН участника"]
+  },
+  "asuFile": {
+    "className": ["Класс"],
+    "surname": ["Фамилия"],
+    "name": ["Имя"],
+    "patronymic": ["Отчество"],
+    "birthDate": ["Дата рождения"],
+    "gender": ["Пол"],
+    "documentType": ["Тип документа"],
+    "documentSeries": ["Серия документа"],
+    "documentNumber": ["Номер документа"],
+    "residenceLocality": ["Адрес проживания | Населенный пункт"],
+    "residenceStreetName": ["Адрес проживания | Название улицы"],
+    "residenceStreetType": ["Адрес проживания | Тип улицы"],
+    "residenceHouse": ["Адрес проживания | Дом"],
+    "residenceBuilding": ["Адрес проживания | Корпус"],
+    "residenceApartment": ["Адрес проживания | Квартира"]
+  }
+}
