@@ -81,7 +81,16 @@
       const joined = row.map((cell) => normalizer.normalizeHeader(cell)).join(' | ');
       const matchCount = keywords.filter((keyword) => joined.includes(keyword)).length;
       if (matchCount >= 3) {
-        /* Check if the previous row is a "parent" header (multi-row header like "Адрес проживания") */
+        /* Check if the NEXT row is a sub-header row (has content but fewer keyword matches) */
+        const nextRow = rowIndex + 1 < matrix.length ? matrix[rowIndex + 1] || [] : [];
+        const nextJoined = nextRow.map((cell) => normalizer.normalizeHeader(cell)).join(' | ');
+        const nextMatchCount = keywords.filter((keyword) => nextJoined.includes(keyword)).length;
+        const nextHasContent = nextRow.some((cell) => utils.safeText(cell));
+        if (nextHasContent && nextMatchCount < matchCount) {
+          /* Two-row header: main keywords row + sub-header row below */
+          return { firstRow: rowIndex, lastRow: rowIndex + 1, dataStartRow: rowIndex + 2 };
+        }
+        /* Also check if the PREVIOUS row is a parent header */
         const prevRow = rowIndex > 0 ? matrix[rowIndex - 1] || [] : [];
         const prevHasContent = prevRow.some((cell) => utils.safeText(cell));
         return { firstRow: prevHasContent ? rowIndex - 1 : rowIndex, lastRow: rowIndex, dataStartRow: rowIndex + 1 };
