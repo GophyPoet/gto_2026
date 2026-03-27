@@ -49,9 +49,34 @@
       return result;
     },
     buildAsuLookup(records) {
-      const byName = new Map();
-      records.forEach((record) => byName.set(normalizer.normalizeFio(record.fullName), record));
-      return byName;
+      const byExactName = new Map();
+      const bySurnameAndInitials = new Map();
+      records.forEach((record) => {
+        const key = normalizer.normalizeFio(record.fullName);
+        if (key) byExactName.set(key, record);
+        /* Also index by "ФАМИЛИЯ И О" for partial matching */
+        const parts = key.split(/\s+/);
+        if (parts.length >= 2) {
+          const shortKey = parts[0] + ' ' + parts.slice(1).map((p) => p.charAt(0)).join(' ');
+          if (!bySurnameAndInitials.has(shortKey)) bySurnameAndInitials.set(shortKey, record);
+        }
+      });
+      return {
+        find(fullName) {
+          const normalized = normalizer.normalizeFio(fullName);
+          /* 1. Exact match */
+          const exact = byExactName.get(normalized);
+          if (exact) return exact;
+          /* 2. Match by initials: school "Иванов И.И." → ASU "Иванов Иван Иванович" */
+          const cleanParts = normalized.split(/\s+/);
+          if (cleanParts.length >= 2) {
+            const shortKey = cleanParts[0] + ' ' + cleanParts.slice(1).map((p) => p.charAt(0)).join(' ');
+            const byInitials = bySurnameAndInitials.get(shortKey);
+            if (byInitials) return byInitials;
+          }
+          return null;
+        }
+      };
     }
   };
 })();

@@ -54,7 +54,7 @@
     let missingUin = 0;
 
     state.analysis.school.allStudents.forEach((student) => {
-      if (asuLookup.get(normalizer.normalizeFio(student.fullName))) matched += 1;
+      if (asuLookup.find(student.fullName)) matched += 1;
       else missingInAsu += 1;
       if (!student.uin || student.uin === '-') missingUin += 1;
     });
@@ -97,15 +97,17 @@
     const asuLookup = mapper.buildAsuLookup(state.analysis.asu ? state.analysis.asu.records : []);
     const stages = state.analysis.template ? state.analysis.template.stages : [];
     const rows = utils.sortByText(state.selectedParticipants, (item) => item.fullName).map((participant, index) => {
-      const asuRecord = asuLookup.get(normalizer.normalizeFio(participant.fullName)) || {};
+      const asuRecord = asuLookup.find(participant.fullName) || {};
       const schoolName = participant.schoolName || state.meta.schoolName || config.placeholders.missing;
       const gender = participant.gender || asuRecord.gender || '';
       const birthDateRaw = participant.birthDate || asuRecord.birthDate || '';
       const ageValue = participant.age !== undefined && participant.age !== null ? participant.age : calculations.calculateAgeOnDate(birthDateRaw, state.meta.eventDate);
-      const stageMeta = participant.stage ? { label: participant.stage } : calculations.resolveStage(ageValue, stages);
+      const stageMeta = participant.stage ? { stageName: participant.stage, label: participant.stage } : calculations.resolveStage(ageValue, stages);
       const documentSeries = participant.documentSeries || asuRecord.documentSeries || '';
       const documentNumberPart = participant.documentNumberPart || asuRecord.documentNumber || '';
-      const documentNumber = participant.documentNumber || [documentSeries, documentNumberPart ? `№${documentNumberPart}` : ''].filter(Boolean).join(' ').trim();
+      const documentNumber = participant.documentNumber || (documentSeries && documentNumberPart
+        ? `${documentSeries} №${documentNumberPart}`
+        : documentSeries || (documentNumberPart ? `№${documentNumberPart}` : ''));
       const address = participant.address || normalizer.buildAddress(asuRecord);
 
       const row = {

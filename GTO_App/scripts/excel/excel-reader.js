@@ -10,10 +10,22 @@
     return XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '', blankrows: false });
   }
 
+  /* Preserve blank rows so row indices match the real spreadsheet */
+  function sheetToRawMatrix(sheet) {
+    return XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '', blankrows: true });
+  }
+
   function findSchoolHeaderRow(matrix) {
-    for (let rowIndex = 0; rowIndex < Math.min(matrix.length, 10); rowIndex += 1) {
+    for (let rowIndex = 0; rowIndex < Math.min(matrix.length, 15); rowIndex += 1) {
       const joined = (matrix[rowIndex] || []).map((cell) => normalizer.normalizeHeader(cell)).join(' | ');
-      if (joined.includes('фио') && joined.includes('уин')) return rowIndex;
+      if (joined.includes('фио') || joined.includes('ф.и.о')) {
+        if (joined.includes('уин') || joined.includes('win') || joined.includes('uin')) return rowIndex;
+      }
+    }
+    /* Fallback: look for a row with at least "фио" */
+    for (let rowIndex = 0; rowIndex < Math.min(matrix.length, 15); rowIndex += 1) {
+      const joined = (matrix[rowIndex] || []).map((cell) => normalizer.normalizeHeader(cell)).join(' | ');
+      if (joined.includes('фио') || joined.includes('ф.и.о')) return rowIndex;
     }
     return 0;
   }
@@ -29,18 +41,23 @@
       if (!matrix.length) return;
       const headerRowIndex = findSchoolHeaderRow(matrix);
       const headers = matrix[headerRowIndex].map((cell) => utils.safeText(cell));
-      const selection = manualSelection || mapper.mappingToSelectable(headers, mapper.matchSchoolHeaders(headers));
+      const selection = (manualSelection && Object.keys(manualSelection).length > 0)
+        ? manualSelection
+        : mapper.mappingToSelectable(headers, mapper.matchSchoolHeaders(headers));
       const resolved = mapper.resolveSelection(selection, headers);
       const rows = matrix.slice(headerRowIndex + 1).filter((row) => row.some((cell) => utils.safeText(cell)));
       const students = rows.map((row, index) => {
-        const fullName = utils.safeText(row[resolved.fullName.index], '');
+        const fullNameIdx = resolved.fullName ? resolved.fullName.index : null;
+        const orderIdx = resolved.order ? resolved.order.index : null;
+        const uinIdx = resolved.uin ? resolved.uin.index : null;
+        const fullName = fullNameIdx !== null ? utils.safeText(row[fullNameIdx], '') : '';
         return {
           id: `${sheetName}-${index}-${normalizer.normalizeFio(fullName)}`,
           className: normalizer.normalizeClassName(sheetName),
           sourceSheet: sheetName,
-          order: utils.safeText(row[resolved.order.index], String(index + 1)),
+          order: orderIdx !== null ? utils.safeText(row[orderIdx], String(index + 1)) : String(index + 1),
           fullName,
-          uin: normalizer.cleanUin(row[resolved.uin.index]),
+          uin: uinIdx !== null ? normalizer.cleanUin(row[uinIdx]) : '',
           source: 'school'
         };
       }).filter((student) => student.fullName);
@@ -56,15 +73,43 @@
     return { sheetNames: workbook.SheetNames, classes: utils.sortByText(classes, (item) => item.name), allStudents: utils.sortByText(allStudents, (item) => item.fullName), issues };
   }
 
-  function buildCombinedAsuHeaders(matrix) {
-    const first = matrix[8] || [];
-    const second = matrix[9] || [];
+  /* Auto-detect ASU header rows by searching for known keywords (фамилия, имя, пол, класс) */
+  function findAsuHeaderRows(matrix) {
+    const keywords = ['фамилия', 'имя', 'пол', 'класс', 'дата рождения'];
+    for (let rowIndex = 0; rowIndex < Math.min(matrix.length, 20); rowIndex += 1) {
+      const row = matrix[rowIndex] || [];
+      const joined = row.map((cell) => normalizer.normalizeHeader(cell)).join(' | ');
+      const matchCount = keywords.filter((keyword) => joined.includes(keyword)).length;
+      if (matchCount >= 3) {
+        /* Check if the previous row is a "parent" header (multi-row header like "Адрес проживания") */
+        const prevRow = rowIndex > 0 ? matrix[rowIndex - 1] || [] : [];
+        const prevHasContent = prevRow.some((cell) => utils.safeText(cell));
+        return { firstRow: prevHasContent ? rowIndex - 1 : rowIndex, lastRow: rowIndex, dataStartRow: rowIndex + 1 };
+      }
+    }
+    /* Fallback: try the old hardcoded positions */
+    return { firstRow: 8, lastRow: 9, dataStartRow: 10 };
+  }
+
+  function buildCombinedAsuHeaders(matrix, firstRow, lastRow) {
+    const first = matrix[firstRow] || [];
+    const second = firstRow !== lastRow ? (matrix[lastRow] || []) : [];
     const width = Math.max(first.length, second.length);
     const headers = [];
+    /* Track the last non-empty parent header so sub-columns inherit it */
+    let lastParent = '';
     for (let index = 0; index < width; index += 1) {
       const top = utils.safeText(first[index]);
       const bottom = utils.safeText(second[index]);
-      headers.push(top && bottom ? `${top} | ${bottom}` : top || bottom || `Колонка ${index + 1}`);
+      if (top) lastParent = top;
+      if (top && bottom) {
+        headers.push(`${top} | ${bottom}`);
+      } else if (bottom && !top && lastParent) {
+        /* Sub-header without its own parent — inherit the last parent */
+        headers.push(`${lastParent} | ${bottom}`);
+      } else {
+        headers.push(top || bottom || `Колонка ${index + 1}`);
+      }
     }
     return headers;
   }
@@ -74,35 +119,59 @@
     return parsed ? new Date(parsed.y, parsed.m - 1, parsed.d) : null;
   }
 
+  function safeResolvedIndex(resolved, field) {
+    return resolved[field] && resolved[field].index !== null ? resolved[field].index : null;
+  }
+
+  function safeCell(row, index) {
+    return index !== null ? row[index] : undefined;
+  }
+
   function parseAsuWorkbook(serializedFile, manualSelection) {
     const workbook = readWorkbookFromBytes(utils.base64ToUint8Array(serializedFile.base64));
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const matrix = sheetToMatrix(sheet);
-    const headers = buildCombinedAsuHeaders(matrix);
-    const selection = manualSelection || mapper.mappingToSelectable(headers, mapper.matchAsuHeaders(headers));
+    /* Use raw matrix (with blank rows preserved) so row indices match the real sheet */
+    const matrix = sheetToRawMatrix(sheet);
+    const headerInfo = findAsuHeaderRows(matrix);
+    const headers = buildCombinedAsuHeaders(matrix, headerInfo.firstRow, headerInfo.lastRow);
+    const selection = (manualSelection && Object.keys(manualSelection).length > 0)
+      ? manualSelection
+      : mapper.mappingToSelectable(headers, mapper.matchAsuHeaders(headers));
     const resolved = mapper.resolveSelection(selection, headers);
-    const rows = matrix.slice(10).filter((row) => row.some((cell) => utils.safeText(cell)));
+    const rows = matrix.slice(headerInfo.dataStartRow).filter((row) => row.some((cell) => utils.safeText(cell)));
     const records = rows.map((row, index) => {
-      const birthRaw = row[resolved.birthDate.index];
-      const birthDate = birthRaw && !Number.isNaN(Number(birthRaw)) ? excelSerialToDate(Number(birthRaw)) : utils.parseDateValue(birthRaw);
+      const birthIdx = safeResolvedIndex(resolved, 'birthDate');
+      const birthRaw = safeCell(row, birthIdx);
+      let birthDate = null;
+      if (birthRaw) {
+        if (!Number.isNaN(Number(birthRaw)) && Number(birthRaw) > 100) {
+          birthDate = excelSerialToDate(Number(birthRaw));
+        } else {
+          birthDate = utils.parseDateValue(birthRaw);
+        }
+      }
       return {
         id: `asu-${index}`,
-        className: normalizer.normalizeClassName(row[resolved.className.index]),
-        surname: utils.safeText(row[resolved.surname.index]),
-        name: utils.safeText(row[resolved.name.index]),
-        patronymic: utils.safeText(row[resolved.patronymic.index]),
-        fullName: normalizer.joinFio([row[resolved.surname.index], row[resolved.name.index], row[resolved.patronymic.index]]),
-        gender: normalizer.toGenderLabel(row[resolved.gender.index]),
+        className: normalizer.normalizeClassName(safeCell(row, safeResolvedIndex(resolved, 'className'))),
+        surname: utils.safeText(safeCell(row, safeResolvedIndex(resolved, 'surname'))),
+        name: utils.safeText(safeCell(row, safeResolvedIndex(resolved, 'name'))),
+        patronymic: utils.safeText(safeCell(row, safeResolvedIndex(resolved, 'patronymic'))),
+        fullName: normalizer.joinFio([
+          safeCell(row, safeResolvedIndex(resolved, 'surname')),
+          safeCell(row, safeResolvedIndex(resolved, 'name')),
+          safeCell(row, safeResolvedIndex(resolved, 'patronymic'))
+        ]),
+        gender: normalizer.toGenderLabel(safeCell(row, safeResolvedIndex(resolved, 'gender'))),
         birthDate: birthDate ? birthDate.toISOString() : '',
-        documentType: utils.safeText(row[resolved.documentType.index]),
-        documentSeries: utils.safeText(row[resolved.documentSeries.index]),
-        documentNumber: utils.safeText(row[resolved.documentNumber.index]),
-        residenceLocality: utils.safeText(row[resolved.residenceLocality.index]),
-        residenceStreetName: utils.safeText(row[resolved.residenceStreetName.index]),
-        residenceStreetType: utils.safeText(row[resolved.residenceStreetType.index]),
-        residenceHouse: utils.safeText(row[resolved.residenceHouse.index]),
-        residenceBuilding: utils.safeText(row[resolved.residenceBuilding.index]),
-        residenceApartment: utils.safeText(row[resolved.residenceApartment.index])
+        documentType: utils.safeText(safeCell(row, safeResolvedIndex(resolved, 'documentType'))),
+        documentSeries: utils.safeText(safeCell(row, safeResolvedIndex(resolved, 'documentSeries'))),
+        documentNumber: utils.safeText(safeCell(row, safeResolvedIndex(resolved, 'documentNumber'))),
+        residenceLocality: utils.safeText(safeCell(row, safeResolvedIndex(resolved, 'residenceLocality'))),
+        residenceStreetName: utils.safeText(safeCell(row, safeResolvedIndex(resolved, 'residenceStreetName'))),
+        residenceStreetType: utils.safeText(safeCell(row, safeResolvedIndex(resolved, 'residenceStreetType'))),
+        residenceHouse: utils.safeText(safeCell(row, safeResolvedIndex(resolved, 'residenceHouse'))),
+        residenceBuilding: utils.safeText(safeCell(row, safeResolvedIndex(resolved, 'residenceBuilding'))),
+        residenceApartment: utils.safeText(safeCell(row, safeResolvedIndex(resolved, 'residenceApartment')))
       };
     }).filter((record) => record.fullName);
     return { sheetNames: workbook.SheetNames, headers, mapping: selection, records, issues: [] };
@@ -112,8 +181,9 @@
     const workbook = readWorkbookFromBytes(utils.base64ToUint8Array(serializedFile.base64));
     const applicationSheetName = workbook.SheetNames.find((name) => normalizer.normalizeHeader(name).includes('заяв'));
     const stageSheetName = workbook.SheetNames.find((name) => normalizer.normalizeHeader(name).includes('ступ'));
-    const applicationMatrix = sheetToMatrix(workbook.Sheets[applicationSheetName]);
-    const stageMatrix = sheetToMatrix(workbook.Sheets[stageSheetName]);
+    /* Use raw matrix to preserve row indices — important for exporter cell references */
+    const applicationMatrix = sheetToRawMatrix(workbook.Sheets[applicationSheetName]);
+    const stageMatrix = sheetToRawMatrix(workbook.Sheets[stageSheetName]);
 
     let headerRowIndex = 5;
     applicationMatrix.forEach((row, index) => {

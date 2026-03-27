@@ -26,8 +26,8 @@
     },
     toGenderLabel(value) {
       const source = normalizer.normalizeHeader(value);
-      if (source === 'м' || source.includes('муж')) return 'мужской';
-      if (source === 'ж' || source.includes('жен')) return 'женский';
+      if (source === 'м' || source === 'male' || source.includes('муж') || source.includes('мальч')) return 'мужской';
+      if (source === 'ж' || source === 'female' || source.includes('жен') || source.includes('девоч')) return 'женский';
       return '';
     },
     joinFio(parts) {
