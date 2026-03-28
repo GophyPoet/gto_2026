@@ -111,11 +111,11 @@
       const birthDateRaw = participant.birthDate || asuRecord.birthDate || '';
       const ageValue = participant.age !== undefined && participant.age !== null ? participant.age : calculations.calculateAgeOnDate(birthDateRaw, state.meta.eventDate);
       const stageMeta = participant.stage ? { stageName: participant.stage, label: participant.stage } : calculations.resolveStage(ageValue, stages);
-      const documentSeries = participant.documentSeries || asuRecord.documentSeries || '';
-      const documentNumberPart = participant.documentNumberPart || asuRecord.documentNumber || '';
-      const documentNumber = participant.documentNumber || (documentSeries && documentNumberPart
-        ? `${documentSeries} №${documentNumberPart}`
-        : documentSeries || (documentNumberPart ? `№${documentNumberPart}` : ''));
+      const docSeries = participant.documentSeries || asuRecord.documentSeries || '';
+      const docNumber = participant.documentNumber || asuRecord.documentNumber || '';
+      const documentNumber = (docSeries && docNumber)
+        ? `${docSeries} ${docNumber}`
+        : docSeries || docNumber || '';
       const address = participant.address || normalizer.buildAddress(asuRecord);
 
       const row = {

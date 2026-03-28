@@ -192,6 +192,9 @@ input[type="text"]:focus, input[type="date"]:focus, input[type="search"]:focus, 
 }
 .class-tab:hover { border-color: var(--accent); color: var(--accent); }
 .class-tab.is-active { background: var(--accent); color: white; border-color: var(--accent); }
+.class-tab-fixed { border-style: dashed; }
+.class-tab-fixed.is-active { border-style: solid; }
+.class-tab-sep { width: 1px; align-self: stretch; background: var(--line); margin: 2px 4px; }
 
 .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 18px; background: white; }
 table { width: 100%; border-collapse: collapse; min-width: 900px; }
