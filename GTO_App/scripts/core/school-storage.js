@@ -167,6 +167,19 @@
       fullName: (data.fullName || '').trim(),
       normalizedName: normalizeName(data.fullName),
       uin: (data.uin || '').trim(),
+      /* ASU extended fields */
+      gender: (data.gender || '').trim(),
+      birthDate: (data.birthDate || '').trim(),
+      documentType: (data.documentType || '').trim(),
+      documentSeries: (data.documentSeries || '').trim(),
+      documentNumber: (data.documentNumber || '').trim(),
+      snils: (data.snils || '').trim(),
+      residenceLocality: (data.residenceLocality || '').trim(),
+      residenceStreetName: (data.residenceStreetName || '').trim(),
+      residenceStreetType: (data.residenceStreetType || '').trim(),
+      residenceHouse: (data.residenceHouse || '').trim(),
+      residenceBuilding: (data.residenceBuilding || '').trim(),
+      residenceApartment: (data.residenceApartment || '').trim(),
       createdAt: now,
       updatedAt: now
     };
@@ -189,6 +202,13 @@
     if (patch.uin !== undefined) s.uin = patch.uin.trim();
     if (patch.classId !== undefined) s.classId = patch.classId;
     if (patch.classNumber !== undefined) s.classNumber = patch.classNumber;
+    /* ASU extended fields */
+    var extFields = ['gender', 'birthDate', 'documentType', 'documentSeries', 'documentNumber',
+      'snils', 'residenceLocality', 'residenceStreetName', 'residenceStreetType',
+      'residenceHouse', 'residenceBuilding', 'residenceApartment'];
+    extFields.forEach(function (f) {
+      if (patch[f] !== undefined) s[f] = typeof patch[f] === 'string' ? patch[f].trim() : patch[f];
+    });
     s.updatedAt = new Date().toISOString();
     store.put(s);
     await txDone(t);
@@ -258,6 +278,18 @@
           fullName: (stu.fullName || '').trim(),
           normalizedName: normalizeName(stu.fullName),
           uin: (stu.uin || '').trim(),
+          gender: (stu.gender || '').trim(),
+          birthDate: (stu.birthDate || '').trim(),
+          documentType: (stu.documentType || '').trim(),
+          documentSeries: (stu.documentSeries || '').trim(),
+          documentNumber: (stu.documentNumber || '').trim(),
+          snils: (stu.snils || '').trim(),
+          residenceLocality: (stu.residenceLocality || '').trim(),
+          residenceStreetName: (stu.residenceStreetName || '').trim(),
+          residenceStreetType: (stu.residenceStreetType || '').trim(),
+          residenceHouse: (stu.residenceHouse || '').trim(),
+          residenceBuilding: (stu.residenceBuilding || '').trim(),
+          residenceApartment: (stu.residenceApartment || '').trim(),
           createdAt: now,
           updatedAt: now
         });
@@ -358,7 +390,28 @@
           changes.push('ФИО: ' + matched.fullName + ' → ' + inc.fullName);
         }
 
-        if (changes.length > 0) {
+        /* Sync extended ASU fields (overwrite with fresh data, preserve UIN) */
+        var extFields = ['gender', 'birthDate', 'documentType', 'documentSeries', 'documentNumber',
+          'snils', 'residenceLocality', 'residenceStreetName', 'residenceStreetType',
+          'residenceHouse', 'residenceBuilding', 'residenceApartment'];
+        extFields.forEach(function (f) {
+          if (inc[f] !== undefined && inc[f] !== '') {
+            var oldVal = matched[f] || '';
+            if (oldVal !== inc[f]) {
+              patch[f] = inc[f];
+            }
+          }
+        });
+
+        /* Count data field updates separately */
+        var dataUpdated = Object.keys(patch).filter(function (k) {
+          return k !== 'classId' && k !== 'classNumber' && k !== 'fullName';
+        }).length > 0;
+
+        if (changes.length > 0 || dataUpdated) {
+          if (dataUpdated && changes.length === 0) {
+            changes.push('обновлены данные АСУ');
+          }
           await updateStudent(matched.id, patch);
           if (patch.classId) {
             report.moved.push({ student: inc, from: matchedClass ? matchedClass.name : '?', to: targetClass.name, changes: changes });
@@ -369,12 +422,24 @@
           report.skipped.push({ student: inc, reason: 'Без изменений' });
         }
       } else {
-        /* New student */
+        /* New student — include all ASU fields */
         await addStudent({
           classId: targetClass.id,
           classNumber: null,
           fullName: inc.fullName,
-          uin: ''  /* UIN not in ASU file */
+          uin: '',
+          gender: inc.gender || '',
+          birthDate: inc.birthDate || '',
+          documentType: inc.documentType || '',
+          documentSeries: inc.documentSeries || '',
+          documentNumber: inc.documentNumber || '',
+          snils: inc.snils || '',
+          residenceLocality: inc.residenceLocality || '',
+          residenceStreetName: inc.residenceStreetName || '',
+          residenceStreetType: inc.residenceStreetType || '',
+          residenceHouse: inc.residenceHouse || '',
+          residenceBuilding: inc.residenceBuilding || '',
+          residenceApartment: inc.residenceApartment || ''
         });
         report.added.push({ student: inc, class: targetClass.name });
       }

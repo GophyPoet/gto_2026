@@ -10,10 +10,10 @@
  *
  * Mode 2: parseAsuStudentList(arrayBuffer)
  *   For files like "список детей март 2026":
- *   - Single sheet, row 8 = headers, row 10+ = data
- *   - Col E(4)=class, G(6)=surname, H(7)=name, I(8)=patronymic, AD(29)=form
+ *   - Single sheet, row 8 = headers, row 9 = sub-headers, row 10+ = data
+ *   - Extracts ALL fields: class, FIO, gender, birthDate, document, address, SNILS
  *   - Only "очная" form students are included
- *   Returns: [{ className, fullName }]
+ *   Returns: [{ className, fullName, gender, birthDate, documentType, ... }]
  */
 (function () {
   'use strict';
@@ -78,77 +78,198 @@
   }
 
   /**
-   * Mode 2: Parse ASU student list
+   * Parse Excel serial date number to ISO date string.
+   */
+  function excelDateToISO(raw) {
+    if (!raw) return '';
+    var s = safeText(raw);
+    if (!s) return '';
+    /* Excel serial number */
+    var num = Number(s);
+    if (!isNaN(num) && num > 100) {
+      var d = new Date((num - 25569) * 86400000);
+      return d.toISOString().slice(0, 10);
+    }
+    /* Try common date formats: M/D/YY, DD.MM.YYYY, YYYY-MM-DD */
+    var parts;
+    if (s.includes('/')) {
+      parts = s.split('/');
+      if (parts.length === 3) {
+        var y = parts[2].length === 2 ? '20' + parts[2] : parts[2];
+        var d2 = new Date(y, parseInt(parts[0], 10) - 1, parseInt(parts[1], 10));
+        if (!isNaN(d2.getTime())) return d2.toISOString().slice(0, 10);
+      }
+    }
+    if (s.includes('.')) {
+      parts = s.split('.');
+      if (parts.length === 3) {
+        var d3 = new Date(parts[2], parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
+        if (!isNaN(d3.getTime())) return d3.toISOString().slice(0, 10);
+      }
+    }
+    var d4 = new Date(s);
+    if (!isNaN(d4.getTime())) return d4.toISOString().slice(0, 10);
+    return s;
+  }
+
+  /**
+   * Normalize gender value to standard label.
+   */
+  function normalizeGender(v) {
+    var s = safeText(v).toLowerCase();
+    if (!s) return '';
+    if (s === 'м' || s === 'муж' || s === 'мужской' || s === 'male') return 'Мужской';
+    if (s === 'ж' || s === 'жен' || s === 'женский' || s === 'female') return 'Женский';
+    return safeText(v);
+  }
+
+  /**
+   * Mode 2: Parse ASU student list with ALL fields.
    */
   function parseAsuStudentList(arrayBuffer) {
     var workbook = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
     var sheet = workbook.Sheets[workbook.SheetNames[0]];
     var matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '', blankrows: true });
 
-    /* Find header row by keywords */
-    var headerRow = -1;
-    var colClass = -1;
-    var colSurname = -1;
-    var colName = -1;
-    var colPatronymic = -1;
-    var colForm = -1;
+    /* Column mapping object — will be filled by auto-detect or fallback */
+    var cols = {
+      className: -1, surname: -1, name: -1, patronymic: -1,
+      birthDate: -1, gender: -1, form: -1,
+      documentType: -1, documentSeries: -1, documentNumber: -1,
+      snils: -1,
+      resLocality: -1, resStreetName: -1, resStreetType: -1,
+      resHouse: -1, resBuilding: -1, resApartment: -1
+    };
 
+    /* Keyword mapping for header detection */
+    var headerKeywords = {
+      'класс': 'className',
+      'фамилия': 'surname',
+      'имя': 'name',
+      'отчество': 'patronymic',
+      'дата рождения': 'birthDate',
+      'пол': 'gender',
+      'форма обучения': 'form',
+      'тип документа': 'documentType',
+      'серия документа': 'documentSeries',
+      'номер документа': 'documentNumber',
+      'снилс': 'snils'
+    };
+
+    /* Sub-header keywords for address columns */
+    var subHeaderKeywords = {
+      'населенный пункт': 'resLocality',
+      'название улицы': 'resStreetName',
+      'тип улицы': 'resStreetType',
+      'дом': 'resHouse',
+      'корпус': 'resBuilding',
+      'квартира': 'resApartment'
+    };
+
+    /* Find header row */
+    var headerRow = -1;
     for (var r = 0; r < Math.min(matrix.length, 20); r++) {
       var row = matrix[r] || [];
       var joined = row.map(function (c) { return safeText(c).toLowerCase(); }).join('|');
       if (joined.includes('фамилия') && joined.includes('имя') && joined.includes('класс')) {
         headerRow = r;
+        /* Match main headers */
         for (var ci = 0; ci < row.length; ci++) {
           var h = safeText(row[ci]).toLowerCase();
-          if (h === 'класс') colClass = ci;
-          if (h === 'фамилия') colSurname = ci;
-          if (h === 'имя') colName = ci;
-          if (h === 'отчество') colPatronymic = ci;
-          if (h === 'форма обучения') colForm = ci;
+          Object.keys(headerKeywords).forEach(function (kw) {
+            if (h === kw) cols[headerKeywords[kw]] = ci;
+          });
         }
         break;
       }
     }
 
-    if (headerRow < 0) {
-      /* Fallback to known positions */
-      headerRow = 8;
-      colClass = 4;
-      colSurname = 6;
-      colName = 7;
-      colPatronymic = 8;
-      colForm = 29;
+    /* Find address sub-columns from the residence address group (row after header) */
+    var addrStart = -1;
+    if (headerRow >= 0) {
+      /* Look for "Адрес проживания" in header row to find the group start */
+      var hRow = matrix[headerRow] || [];
+      for (var ai = 0; ai < hRow.length; ai++) {
+        if (safeText(hRow[ai]).toLowerCase().includes('адрес проживания')) {
+          addrStart = ai;
+          break;
+        }
+      }
+      /* Parse sub-headers row */
+      var subRow = matrix[headerRow + 1] || [];
+      if (addrStart >= 0) {
+        for (var si = addrStart; si < Math.min(subRow.length, addrStart + 10); si++) {
+          var sh = safeText(subRow[si]).toLowerCase();
+          Object.keys(subHeaderKeywords).forEach(function (kw) {
+            if (sh === kw && cols[subHeaderKeywords[kw]] === -1) {
+              cols[subHeaderKeywords[kw]] = si;
+            }
+          });
+        }
+      }
     }
 
-    var result = [];
-    var dataStart = headerRow + 2; /* Skip header + possible sub-header row */
+    /* Fallback to known positions if auto-detect failed */
+    if (headerRow < 0) {
+      headerRow = 8;
+      cols.className = 4; cols.surname = 6; cols.name = 7; cols.patronymic = 8;
+      cols.birthDate = 9; cols.gender = 10;
+      cols.documentType = 11; cols.documentSeries = 12; cols.documentNumber = 13;
+      cols.snils = 16; cols.form = 29;
+      cols.resLocality = 23; cols.resStreetName = 24; cols.resStreetType = 25;
+      cols.resHouse = 26; cols.resBuilding = 27; cols.resApartment = 28;
+    }
 
-    /* If row after header is empty or has sub-headers, skip it */
+    /* Determine data start row (skip sub-header if present) */
     var nextRow = matrix[headerRow + 1] || [];
-    var nextHasData = nextRow.some(function (c) {
-      var v = safeText(c);
-      return v && v.toLowerCase() !== '' && v !== '№ п/п';
+    var nextHasRealData = nextRow.some(function (c, idx) {
+      if (idx === cols.surname || idx === cols.name) return safeText(c) !== '';
+      return false;
     });
-    if (!nextHasData) dataStart = headerRow + 2;
-    else dataStart = headerRow + 1;
+    var dataStart = nextHasRealData ? headerRow + 1 : headerRow + 2;
 
+    var result = [];
     for (var ri = dataStart; ri < matrix.length; ri++) {
       var dataRow = matrix[ri] || [];
-      var surname = safeText(dataRow[colSurname]);
-      var name = safeText(dataRow[colName]);
-      if (!surname && !name) continue;
+      var surname = safeText(dataRow[cols.surname]);
+      var nameVal = safeText(dataRow[cols.name]);
+      if (!surname && !nameVal) continue;
 
       /* Check form of education */
-      var form = safeText(dataRow[colForm]).toLowerCase().replace(/\s+/g, ' ');
+      var form = cols.form >= 0 ? safeText(dataRow[cols.form]).toLowerCase().replace(/\s+/g, ' ') : '';
       if (form && form !== 'очная') continue;
 
-      var patronymic = safeText(dataRow[colPatronymic]);
-      var className = safeText(dataRow[colClass]);
-      var fullName = [surname, name, patronymic].filter(Boolean).join(' ');
+      var patronymic = safeText(dataRow[cols.patronymic]);
+      var className = safeText(dataRow[cols.className]);
+      var fullName = [surname, nameVal, patronymic].filter(Boolean).join(' ');
 
-      if (fullName && className) {
-        result.push({ className: className, fullName: fullName });
-      }
+      if (!fullName || !className) continue;
+
+      /* Build address from components */
+      var addrParts = [];
+      var locality = cols.resLocality >= 0 ? safeText(dataRow[cols.resLocality]) : '';
+      var streetType = cols.resStreetType >= 0 ? safeText(dataRow[cols.resStreetType]) : '';
+      var streetName = cols.resStreetName >= 0 ? safeText(dataRow[cols.resStreetName]) : '';
+      var house = cols.resHouse >= 0 ? safeText(dataRow[cols.resHouse]) : '';
+      var building = cols.resBuilding >= 0 ? safeText(dataRow[cols.resBuilding]) : '';
+      var apartment = cols.resApartment >= 0 ? safeText(dataRow[cols.resApartment]) : '';
+
+      result.push({
+        className: className,
+        fullName: fullName,
+        gender: normalizeGender(cols.gender >= 0 ? dataRow[cols.gender] : ''),
+        birthDate: excelDateToISO(cols.birthDate >= 0 ? dataRow[cols.birthDate] : ''),
+        documentType: cols.documentType >= 0 ? safeText(dataRow[cols.documentType]) : '',
+        documentSeries: cols.documentSeries >= 0 ? safeText(dataRow[cols.documentSeries]) : '',
+        documentNumber: cols.documentNumber >= 0 ? safeText(dataRow[cols.documentNumber]) : '',
+        snils: cols.snils >= 0 ? safeText(dataRow[cols.snils]) : '',
+        residenceLocality: locality,
+        residenceStreetName: streetName,
+        residenceStreetType: streetType,
+        residenceHouse: house,
+        residenceBuilding: building,
+        residenceApartment: apartment
+      });
     }
 
     return result;

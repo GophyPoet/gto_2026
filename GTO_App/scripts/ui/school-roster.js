@@ -160,6 +160,31 @@
     dlg.showModal();
   }
 
+  /* ---- Info helpers ---- */
+  function infoField(label, value) {
+    var v = value || '-';
+    return '<div class="roster-info-field"><span class="roster-info-label">' + esc(label) + '</span><span class="roster-info-value">' + esc(v) + '</span></div>';
+  }
+  function formatBirthDate(iso) {
+    if (!iso) return '';
+    var parts = iso.split('-');
+    if (parts.length === 3) return parts[2] + '.' + parts[1] + '.' + parts[0];
+    return iso;
+  }
+  function buildStreet(s) {
+    var parts = [];
+    if (s.residenceStreetType) parts.push(s.residenceStreetType);
+    if (s.residenceStreetName) parts.push(s.residenceStreetName);
+    return parts.join(' ') || '';
+  }
+  function buildHouseAddr(s) {
+    var parts = [];
+    if (s.residenceHouse) parts.push('д. ' + s.residenceHouse);
+    if (s.residenceBuilding) parts.push('корп. ' + s.residenceBuilding);
+    if (s.residenceApartment) parts.push('кв. ' + s.residenceApartment);
+    return parts.join(', ') || '';
+  }
+
   /* ---- Main render ---- */
   async function render() {
     var container = $('schoolRoster');
@@ -263,9 +288,12 @@
       html += '<thead><tr><th style="width:60px">№</th><th>ФИО</th><th style="width:200px">УИН</th><th style="width:200px">Действия</th></tr></thead>';
       html += '<tbody>';
       students.forEach(function (s) {
+        var hasInfo = s.gender || s.birthDate || s.documentNumber || s.residenceLocality;
         html += '<tr data-sid="' + s.id + '">';
         html += '<td>' + (s.classNumber || '-') + '</td>';
-        html += '<td>' + esc(s.fullName) + '</td>';
+        html += '<td>' + esc(s.fullName);
+        if (hasInfo) html += ' <span class="roster-info-badge" data-toggle-info="' + s.id + '" title="Показать доп. информацию">i</span>';
+        html += '</td>';
         html += '<td class="roster-uin-cell" data-edit-uin="' + s.id + '" title="Нажмите для редактирования УИН">' + esc(s.uin || '-') + '</td>';
         html += '<td class="roster-row-actions">';
         html += '<button class="btn-icon-sm" data-edit-student="' + s.id + '" title="Редактировать">&#9998;</button>';
@@ -273,6 +301,19 @@
         html += '<button class="btn-icon-sm" data-archive-student="' + s.id + '" title="В архив">&#128451;</button>';
         html += '<button class="btn-icon-sm btn-icon-danger" data-del-student="' + s.id + '" title="Удалить">&times;</button>';
         html += '</td></tr>';
+        /* Expandable detail row (hidden by default) */
+        html += '<tr class="roster-info-row" id="info-' + s.id + '" style="display:none">';
+        html += '<td colspan="4"><div class="roster-info-grid">';
+        html += infoField('Пол', s.gender);
+        html += infoField('Дата рождения', formatBirthDate(s.birthDate));
+        html += infoField('Тип документа', s.documentType);
+        html += infoField('Серия', s.documentSeries);
+        html += infoField('Номер документа', s.documentNumber);
+        html += infoField('СНИЛС', s.snils);
+        html += infoField('Нас. пункт', s.residenceLocality);
+        html += infoField('Улица', buildStreet(s));
+        html += infoField('Дом', buildHouseAddr(s));
+        html += '</div></td></tr>';
       });
       html += '</tbody></table></div>';
 
@@ -443,6 +484,19 @@
       cell.addEventListener('click', function (e) {
         e.stopPropagation();
         handleEditUin(cell.dataset.editUin);
+      });
+    });
+
+    /* Toggle info row */
+    document.querySelectorAll('[data-toggle-info]').forEach(function (badge) {
+      badge.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var infoRow = document.getElementById('info-' + badge.dataset.toggleInfo);
+        if (infoRow) {
+          var visible = infoRow.style.display !== 'none';
+          infoRow.style.display = visible ? 'none' : '';
+          badge.classList.toggle('is-open', !visible);
+        }
       });
     });
 
