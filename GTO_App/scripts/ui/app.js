@@ -269,7 +269,7 @@
 
   function renderReview() {
     const state = appState.getState();
-    if (!state.analysis.school || !state.analysis.asu || !state.analysis.template) {
+    if (!state.analysis.school || !state.analysis.school.allStudents || !state.analysis.school.allStudents.length) {
       els.reviewStats.innerHTML = '';
       els.reviewTableWrap.innerHTML = '<div class="empty-state">Сначала завершите подготовку данных.</div>';
       renderIssues(els.reviewIssues, [], 'Нет данных для проверки.');
@@ -325,7 +325,7 @@
   function canOpenStep(stepId) {
     const state = appState.getState();
     if (stepId === 'prepare') return true;
-    if (stepId === 'select') return Boolean(state.analysis.school && state.analysis.asu && state.analysis.template);
+    if (stepId === 'select') return Boolean(state.analysis.school && state.analysis.school.allStudents && state.analysis.school.allStudents.length > 0);
     if (stepId === 'review') return Boolean(state.selectedParticipants.length);
     return false;
   }
@@ -514,6 +514,103 @@
     els.downloadExcelBtn.addEventListener('click', downloadExcel);
   }
 
+  /* ---- Load data from school roster (IndexedDB) ---- */
+  async function loadFromRoster() {
+    if (!window.GTOSchool) return false;
+    try {
+      await window.GTOSchool.init();
+      var classes = await window.GTOSchool.getAllClasses();
+      if (!classes.length) return false;
+
+      var allStudents = [];
+      var classObjects = [];
+
+      for (var i = 0; i < classes.length; i++) {
+        var cls = classes[i];
+        var students = await window.GTOSchool.getStudentsByClass(cls.id);
+        var classStudents = students.map(function (s, idx) {
+          var student = {
+            id: s.id,
+            fullName: s.fullName,
+            className: cls.name,
+            uin: s.uin || '',
+            gender: s.gender || '',
+            birthDate: s.birthDate || '',
+            documentType: s.documentType || '',
+            documentSeries: s.documentSeries || '',
+            documentNumber: s.documentNumber || '',
+            snils: s.snils || '',
+            residenceLocality: s.residenceLocality || '',
+            residenceStreetName: s.residenceStreetName || '',
+            residenceStreetType: s.residenceStreetType || '',
+            residenceHouse: s.residenceHouse || '',
+            residenceBuilding: s.residenceBuilding || '',
+            residenceApartment: s.residenceApartment || '',
+            source: 'roster'
+          };
+          return student;
+        });
+        classObjects.push({
+          name: cls.name,
+          originalName: cls.name,
+          students: classStudents,
+          headers: ['ФИО', 'УИН'],
+          mapping: {},
+          issues: []
+        });
+        allStudents = allStudents.concat(classStudents);
+      }
+
+      /* Build fake ASU records from roster data (so buildGeneratedRows works) */
+      var asuRecords = allStudents.map(function (s) {
+        return {
+          id: s.id,
+          fullName: s.fullName,
+          className: s.className,
+          gender: s.gender,
+          birthDate: s.birthDate,
+          documentType: s.documentType,
+          documentSeries: s.documentSeries,
+          documentNumber: s.documentNumber,
+          residenceLocality: s.residenceLocality,
+          residenceStreetName: s.residenceStreetName,
+          residenceStreetType: s.residenceStreetType,
+          residenceHouse: s.residenceHouse,
+          residenceBuilding: s.residenceBuilding,
+          residenceApartment: s.residenceApartment
+        };
+      });
+
+      /* Load the built-in template */
+      var builtinTemplate = window.GTOApp.builtinTemplate;
+      var templateData = excelReader.parseTemplateWorkbook(builtinTemplate);
+
+      appState.setAnalysis({
+        school: {
+          classes: classObjects,
+          allStudents: allStudents,
+          sheetNames: classes.map(function (c) { return c.name; }),
+          issues: []
+        },
+        asu: {
+          records: asuRecords,
+          headers: [],
+          mapping: {},
+          sheetNames: ['Реестр'],
+          issues: []
+        },
+        template: templateData,
+        issues: []
+      });
+
+      appState.buildStructureReport();
+      return true;
+    } catch (e) {
+      console.error('Failed to load roster data:', e);
+      return false;
+    }
+  }
+
   /* ---- Session bar integration ---- */
   function initSessionBar() {
     var sessionBar = document.getElementById('sessionBar');
@@ -578,6 +675,17 @@
         if (session && session.eventDate) {
           appState.updateMeta({ eventDate: session.eventDate });
         }
+      }
+    }
+
+    /* Auto-load data from school roster if available */
+    var currentState = appState.getState();
+    var hasAnalysis = currentState.analysis && currentState.analysis.school && currentState.analysis.school.allStudents && currentState.analysis.school.allStudents.length > 0;
+    if (!hasAnalysis) {
+      var loaded = await loadFromRoster();
+      if (loaded) {
+        /* Skip prepare step — go straight to participant selection */
+        appState.setCurrentStep('select');
       }
     }
 
