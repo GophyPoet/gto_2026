@@ -266,7 +266,7 @@
         html += '<tr data-sid="' + s.id + '">';
         html += '<td>' + (s.classNumber || '-') + '</td>';
         html += '<td>' + esc(s.fullName) + '</td>';
-        html += '<td>' + esc(s.uin || '-') + '</td>';
+        html += '<td class="roster-uin-cell" data-edit-uin="' + s.id + '" title="Нажмите для редактирования УИН">' + esc(s.uin || '-') + '</td>';
         html += '<td class="roster-row-actions">';
         html += '<button class="btn-icon-sm" data-edit-student="' + s.id + '" title="Редактировать">&#9998;</button>';
         html += '<button class="btn-icon-sm" data-move-student="' + s.id + '" title="Перенести">&#8644;</button>';
@@ -438,6 +438,14 @@
       btn.addEventListener('click', function () { handleEditStudent(btn.dataset.editStudent); });
     });
 
+    /* Quick-edit UIN by clicking the cell */
+    document.querySelectorAll('[data-edit-uin]').forEach(function (cell) {
+      cell.addEventListener('click', function (e) {
+        e.stopPropagation();
+        handleEditUin(cell.dataset.editUin);
+      });
+    });
+
     /* Move student */
     document.querySelectorAll('[data-move-student]').forEach(function (btn) {
       btn.addEventListener('click', function () { handleMoveStudent(btn.dataset.moveStudent, classes); });
@@ -607,6 +615,16 @@
     var uin = prompt('УИН (можно оставить пустым):', '');
     await school.addStudent({ classId: classId, fullName: fullName.trim(), uin: (uin || '').trim() });
     await school.renumberClass(classId);
+    render();
+  }
+
+  async function handleEditUin(studentId) {
+    var students = await school.getAllStudents();
+    var s = students.find(function (st) { return st.id === studentId; });
+    if (!s) return;
+    var uin = prompt('УИН для ' + s.fullName + ':', s.uin || '');
+    if (uin === null) return;
+    await school.updateStudent(studentId, { uin: uin.trim() });
     render();
   }
 
