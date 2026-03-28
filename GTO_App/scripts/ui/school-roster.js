@@ -623,7 +623,8 @@
     var s = students.find(function (st) { return st.id === studentId; });
     if (!s) return;
     var uin = prompt('УИН для ' + s.fullName + ':', s.uin || '');
-    if (uin === null) return;
+    if (uin === null || uin.trim() === (s.uin || '')) return;
+    if (!confirm('Изменить УИН для ' + s.fullName + '?\n\nБыло: ' + (s.uin || '(пусто)') + '\nСтанет: ' + (uin.trim() || '(пусто)'))) return;
     await school.updateStudent(studentId, { uin: uin.trim() });
     render();
   }
