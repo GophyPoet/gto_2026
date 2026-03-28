@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ГТО — Центр управления</title>
   <link rel="stylesheet" href="styles/dashboard.css">
+  <link rel="stylesheet" href="styles/school-roster.css">
 </head>
 <body>
   <nav class="topnav">
@@ -42,6 +43,19 @@
 
     <!-- Dates tab -->
     <section class="tab-content is-active" id="tab-dates">
+      <!-- School roster section -->
+      <div class="roster-section">
+        <div class="roster-section-header">
+          <div>
+            <h2>Школьный реестр</h2>
+            <p class="roster-section-subtitle">Классы и ученики — основной источник данных для формирования заявок</p>
+          </div>
+        </div>
+        <div id="schoolRoster">
+          <!-- Rendered by school-roster.js -->
+        </div>
+      </div>
+
       <div class="section-header">
         <div>
           <h2>Даты проведения ГТО</h2>
@@ -119,7 +133,29 @@
     </form>
   </dialog>
 
+  <!-- Sync/Import report dialog -->
+  <dialog id="reportDialog" class="dialog dialog-wide">
+    <div class="dialog-form">
+      <div class="dialog-head">
+        <h3 id="reportTitle">Отчёт</h3>
+        <button class="icon-btn" id="reportCloseBtn" type="button">&times;</button>
+      </div>
+      <div class="dialog-body" id="reportBody">
+        <!-- Rendered dynamically -->
+      </div>
+      <div class="dialog-actions">
+        <button class="btn btn-primary" id="reportOkBtn" type="button">Понятно</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script src="assets/vendor/xlsx.full.min.js"></script>
+  <script src="assets/vendor/exceljs.min.js"></script>
   <script src="scripts/core/session-storage.js"></script>
+  <script src="scripts/core/school-storage.js"></script>
+  <script src="scripts/data/school-import.js"></script>
+  <script src="scripts/data/school-export.js"></script>
+  <script src="scripts/ui/school-roster.js"></script>
   <script src="scripts/ui/dashboard.js"></script>
 </body>
 </html>
