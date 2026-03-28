@@ -181,6 +181,14 @@
   /* ---- Init ---- */
   sessions.init().then(function () {
     renderSessions();
+    /* Initialize school roster */
+    if (window.GTOSchool && window.GTOSchoolRoster) {
+      window.GTOSchool.init().then(function () {
+        window.GTOSchoolRoster.render();
+      }).catch(function (err) {
+        console.error('Failed to init school roster:', err);
+      });
+    }
   }).catch(function (error) {
     console.error('Failed to init sessions DB:', error);
     els.sessionsList.innerHTML = '<div class="empty-state"><p>Ошибка инициализации базы данных.</p></div>';
