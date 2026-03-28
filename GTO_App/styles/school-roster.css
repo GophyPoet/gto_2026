@@ -184,6 +184,15 @@
   padding: 10px 12px;
   vertical-align: middle;
 }
+.roster-uin-cell {
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+.roster-uin-cell:hover {
+  background: var(--accent-soft);
+  outline: 1px dashed var(--accent);
+}
 .roster-row-actions {
   display: flex;
   gap: 4px;
