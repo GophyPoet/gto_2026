@@ -663,6 +663,7 @@
           documentType: s.documentType,
           documentSeries: s.documentSeries,
           documentNumber: s.documentNumber,
+          snils: s.snils || '',
           residenceLocality: s.residenceLocality,
           residenceStreetName: s.residenceStreetName,
           residenceStreetType: s.residenceStreetType,
@@ -675,6 +676,9 @@
       /* Load the built-in template */
       var builtinTemplate = window.GTOApp.builtinTemplate;
       var templateData = excelReader.parseTemplateWorkbook(builtinTemplate);
+
+      /* Set template file so exporter can access the base64 binary */
+      appState.setFiles({ template: builtinTemplate });
 
       appState.setAnalysis({
         school: {
