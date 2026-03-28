@@ -1,6 +1,10 @@
 /**
  * school-roster.js — Dashboard UI for managing school classes and students.
  * Renders into #schoolRoster container on the dashboard.
+ *
+ * Tab system:
+ *   - Dynamic class tabs (from imported data)
+ *   - Fixed tabs: Архив, Работники школы, Родители, Дополнительно
  */
 (function () {
   'use strict';
@@ -8,13 +12,22 @@
   var school = window.GTOSchool;
   var importer = window.GTOSchoolImport;
   var exporter = window.GTOSchoolExport;
+
+  /* Current state */
   var selectedClassId = null;
+  var activeFixedTab = null; // 'archive' | 'staff' | 'parents' | 'extra' | null
+
+  var FIXED_TABS = [
+    { id: 'archive', label: 'Архив' },
+    { id: 'staff', label: 'Работники школы' },
+    { id: 'parents', label: 'Родители' },
+    { id: 'extra', label: 'Дополнительно' }
+  ];
 
   /* ---- Helpers ---- */
   function esc(v) {
     return String(v || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
-
   function $(id) { return document.getElementById(id); }
 
   /* ---- Main render ---- */
@@ -25,7 +38,7 @@
     var classes = await school.getAllClasses();
     var stats = await school.getStats();
 
-    /* If selectedClassId no longer exists, reset */
+    /* Reset invalid selections */
     if (selectedClassId && !classes.find(function (c) { return c.id === selectedClassId; })) {
       selectedClassId = null;
     }
@@ -37,6 +50,7 @@
     html += '<div class="roster-stat"><span class="roster-stat-val">' + stats.classCount + '</span><span class="roster-stat-lbl">Классов</span></div>';
     html += '<div class="roster-stat"><span class="roster-stat-val">' + stats.studentCount + '</span><span class="roster-stat-lbl">Учеников</span></div>';
     html += '<div class="roster-stat"><span class="roster-stat-val">' + stats.withUin + '</span><span class="roster-stat-lbl">С УИН</span></div>';
+    html += '<div class="roster-stat"><span class="roster-stat-val">' + stats.archivedCount + '</span><span class="roster-stat-lbl">В архиве</span></div>';
     html += '</div>';
 
     /* Action bar */
@@ -47,18 +61,38 @@
     html += '<button class="btn btn-ghost btn-sm" id="rosterExportAll" type="button">Экспорт всех классов</button>';
     html += '</div>';
 
-    /* Class tabs */
+    /* Class tabs + fixed tabs */
+    html += '<div class="roster-class-tabs">';
+
+    /* Dynamic class tabs */
+    classes.forEach(function (cls) {
+      var active = (!activeFixedTab && cls.id === selectedClassId) ? ' is-active' : '';
+      html += '<button class="roster-class-tab' + active + '" data-cid="' + cls.id + '" type="button">' + esc(cls.name) + '</button>';
+    });
+
+    /* Separator */
     if (classes.length > 0) {
-      html += '<div class="roster-class-tabs">';
-      classes.forEach(function (cls) {
-        var active = cls.id === selectedClassId ? ' is-active' : '';
-        html += '<button class="roster-class-tab' + active + '" data-cid="' + cls.id + '" type="button">' + esc(cls.name) + '</button>';
-      });
-      html += '</div>';
+      html += '<span class="roster-tab-sep"></span>';
     }
 
-    /* Selected class detail */
-    if (selectedClassId) {
+    /* Fixed tabs */
+    FIXED_TABS.forEach(function (tab) {
+      var active = activeFixedTab === tab.id ? ' is-active is-fixed' : ' is-fixed';
+      html += '<button class="roster-class-tab' + active + '" data-fixed="' + tab.id + '" type="button">' + tab.label + '</button>';
+    });
+
+    html += '</div>';
+
+    /* Content area */
+    if (activeFixedTab === 'archive') {
+      html += await renderArchive();
+    } else if (activeFixedTab === 'staff') {
+      html += await renderPersonList('staff', 'Работники школы', 'Добавьте работников школы для формирования заявок.');
+    } else if (activeFixedTab === 'parents') {
+      html += await renderPersonList('parents', 'Родители', 'Добавьте родителей для формирования заявок.');
+    } else if (activeFixedTab === 'extra') {
+      html += await renderPersonList('extra', 'Дополнительно', 'Дополнительный список участников.');
+    } else if (selectedClassId) {
       html += await renderClassDetail(selectedClassId, classes);
     } else if (classes.length > 0) {
       html += '<div class="roster-empty">Выберите класс для просмотра списка учеников.</div>';
@@ -70,6 +104,7 @@
     bindEvents(classes);
   }
 
+  /* ---- Class detail ---- */
   async function renderClassDetail(classId, allClasses) {
     var cls = allClasses.find(function (c) { return c.id === classId; });
     if (!cls) return '';
@@ -95,7 +130,7 @@
     /* Students table */
     if (students.length > 0) {
       html += '<div class="roster-table-wrap"><table class="roster-table">';
-      html += '<thead><tr><th style="width:60px">№</th><th>ФИО</th><th style="width:200px">УИН</th><th style="width:180px">Действия</th></tr></thead>';
+      html += '<thead><tr><th style="width:60px">№</th><th>ФИО</th><th style="width:200px">УИН</th><th style="width:200px">Действия</th></tr></thead>';
       html += '<tbody>';
       students.forEach(function (s) {
         html += '<tr data-sid="' + s.id + '">';
@@ -105,25 +140,107 @@
         html += '<td class="roster-row-actions">';
         html += '<button class="btn-icon-sm" data-edit-student="' + s.id + '" title="Редактировать">&#9998;</button>';
         html += '<button class="btn-icon-sm" data-move-student="' + s.id + '" title="Перенести">&#8644;</button>';
+        html += '<button class="btn-icon-sm" data-archive-student="' + s.id + '" title="В архив">&#128451;</button>';
         html += '<button class="btn-icon-sm btn-icon-danger" data-del-student="' + s.id + '" title="Удалить">&times;</button>';
         html += '</td></tr>';
       });
       html += '</tbody></table></div>';
 
-      /* Mass move */
-      if (allClasses.length > 1) {
+      /* Mass actions */
+      if (allClasses.length > 1 || students.length > 0) {
         html += '<div class="roster-mass-move">';
         html += '<label><input type="checkbox" id="rosterSelectAll"> Выбрать всех</label>';
-        html += '<select id="rosterMoveTarget"><option value="">Переместить в...</option>';
-        allClasses.forEach(function (c) {
-          if (c.id !== classId) html += '<option value="' + c.id + '">' + esc(c.name) + '</option>';
-        });
-        html += '</select>';
-        html += '<button class="btn btn-sm btn-ghost" id="rosterMassMove" type="button">Переместить выбранных</button>';
+        if (allClasses.length > 1) {
+          html += '<select id="rosterMoveTarget"><option value="">Переместить в...</option>';
+          allClasses.forEach(function (c) {
+            if (c.id !== classId) html += '<option value="' + c.id + '">' + esc(c.name) + '</option>';
+          });
+          html += '</select>';
+          html += '<button class="btn btn-sm btn-ghost" id="rosterMassMove" type="button">Переместить</button>';
+        }
+        html += '<button class="btn btn-sm btn-secondary" id="rosterMassArchive" type="button">В архив</button>';
         html += '</div>';
       }
     } else {
       html += '<div class="roster-empty">В классе пока нет учеников.</div>';
+    }
+
+    html += '</div>';
+    return html;
+  }
+
+  /* ---- Archive view ---- */
+  async function renderArchive() {
+    var archived = await school.getArchivedStudents();
+
+    var html = '<div class="roster-detail">';
+    html += '<div class="roster-detail-head">';
+    html += '<div class="roster-detail-title">';
+    html += '<h3>Архив</h3>';
+    html += '<span class="roster-detail-count">' + archived.length + ' учен.</span>';
+    html += '</div>';
+    html += '</div>';
+
+    if (archived.length > 0) {
+      html += '<div class="roster-table-wrap"><table class="roster-table">';
+      html += '<thead><tr><th>ФИО</th><th style="width:120px">Класс</th><th style="width:180px">УИН</th><th style="width:200px">Причина</th><th style="width:120px">Дата</th><th style="width:160px">Действия</th></tr></thead>';
+      html += '<tbody>';
+      archived.forEach(function (a) {
+        var date = a.archivedAt ? new Date(a.archivedAt).toLocaleDateString('ru-RU') : '-';
+        html += '<tr>';
+        html += '<td>' + esc(a.fullName) + '</td>';
+        html += '<td>' + esc(a.originalClassName || '-') + '</td>';
+        html += '<td>' + esc(a.uin || '-') + '</td>';
+        html += '<td class="roster-reason">' + esc(a.reason || '-') + '</td>';
+        html += '<td>' + date + '</td>';
+        html += '<td class="roster-row-actions">';
+        html += '<button class="btn btn-sm btn-ghost" data-restore="' + a.id + '" type="button">Восстановить</button>';
+        html += '<button class="btn-icon-sm btn-icon-danger" data-del-archived="' + a.id + '" title="Удалить навсегда">&times;</button>';
+        html += '</td></tr>';
+      });
+      html += '</tbody></table></div>';
+    } else {
+      html += '<div class="roster-empty">Архив пуст.</div>';
+    }
+
+    html += '</div>';
+    return html;
+  }
+
+  /* ---- Person list (staff / parents / extra) ---- */
+  async function renderPersonList(storeName, title, emptyText) {
+    var api = school[storeName];
+    var people = await api.getAll();
+
+    var html = '<div class="roster-detail">';
+    html += '<div class="roster-detail-head">';
+    html += '<div class="roster-detail-title">';
+    html += '<h3>' + esc(title) + '</h3>';
+    html += '<span class="roster-detail-count">' + people.length + ' чел.</span>';
+    html += '</div>';
+    html += '<div class="roster-detail-actions">';
+    html += '<button class="btn btn-sm btn-primary" data-add-person="' + storeName + '" type="button">+ Добавить</button>';
+    html += '</div></div>';
+
+    if (people.length > 0) {
+      html += '<div class="roster-table-wrap"><table class="roster-table">';
+      html += '<thead><tr><th>ФИО</th><th style="width:160px">Роль / Должность</th><th style="width:150px">Телефон</th><th style="width:180px">Email</th><th style="width:180px">Примечание</th><th style="width:120px">Действия</th></tr></thead>';
+      html += '<tbody>';
+      people.forEach(function (p) {
+        html += '<tr>';
+        html += '<td>' + esc(p.fullName) + '</td>';
+        html += '<td>' + esc(p.role || '-') + '</td>';
+        html += '<td>' + esc(p.phone || '-') + '</td>';
+        html += '<td>' + esc(p.email || '-') + '</td>';
+        html += '<td>' + esc(p.note || '-') + '</td>';
+        html += '<td class="roster-row-actions">';
+        html += '<button class="btn-icon-sm" data-edit-person="' + p.id + '" data-store="' + storeName + '" title="Редактировать">&#9998;</button>';
+        html += '<button class="btn-icon-sm btn-icon-danger" data-del-person="' + p.id + '" data-store="' + storeName + '" title="Удалить">&times;</button>';
+        html += '</td></tr>';
+      });
+      html += '</tbody></table></div>';
+    } else {
+      html += '<div class="roster-empty">' + esc(emptyText) + '</div>';
     }
 
     html += '</div>';
@@ -136,6 +253,16 @@
     document.querySelectorAll('.roster-class-tab[data-cid]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         selectedClassId = btn.dataset.cid;
+        activeFixedTab = null;
+        render();
+      });
+    });
+
+    /* Fixed tab clicks */
+    document.querySelectorAll('.roster-class-tab[data-fixed]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        activeFixedTab = btn.dataset.fixed;
+        selectedClassId = null;
         render();
       });
     });
@@ -186,16 +313,50 @@
       btn.addEventListener('click', function () { handleMoveStudent(btn.dataset.moveStudent, classes); });
     });
 
+    /* Archive student */
+    document.querySelectorAll('[data-archive-student]').forEach(function (btn) {
+      btn.addEventListener('click', function () { handleArchiveStudent(btn.dataset.archiveStudent); });
+    });
+
     /* Delete student */
     document.querySelectorAll('[data-del-student]').forEach(function (btn) {
       btn.addEventListener('click', function () { handleDeleteStudent(btn.dataset.delStudent); });
+    });
+
+    /* Restore from archive */
+    document.querySelectorAll('[data-restore]').forEach(function (btn) {
+      btn.addEventListener('click', function () { handleRestoreStudent(btn.dataset.restore); });
+    });
+
+    /* Delete from archive permanently */
+    document.querySelectorAll('[data-del-archived]').forEach(function (btn) {
+      btn.addEventListener('click', function () { handleDeleteArchived(btn.dataset.delArchived); });
+    });
+
+    /* Add person (staff/parents/extra) */
+    document.querySelectorAll('[data-add-person]').forEach(function (btn) {
+      btn.addEventListener('click', function () { handleAddPerson(btn.dataset.addPerson); });
+    });
+
+    /* Edit person */
+    document.querySelectorAll('[data-edit-person]').forEach(function (btn) {
+      btn.addEventListener('click', function () { handleEditPerson(btn.dataset.editPerson, btn.dataset.store); });
+    });
+
+    /* Delete person */
+    document.querySelectorAll('[data-del-person]').forEach(function (btn) {
+      btn.addEventListener('click', function () { handleDeletePerson(btn.dataset.delPerson, btn.dataset.store); });
     });
 
     /* Mass move */
     var massMove = $('rosterMassMove');
     if (massMove) massMove.addEventListener('click', handleMassMove);
 
-    /* Select all checkbox */
+    /* Mass archive */
+    var massArchive = $('rosterMassArchive');
+    if (massArchive) massArchive.addEventListener('click', handleMassArchive);
+
+    /* Select all checkbox + row toggle */
     var selectAll = $('rosterSelectAll');
     if (selectAll) {
       selectAll.addEventListener('change', function () {
@@ -203,17 +364,16 @@
           row.classList.toggle('is-selected', selectAll.checked);
         });
       });
-      /* Toggle individual rows */
       document.querySelectorAll('.roster-table tbody tr').forEach(function (row) {
         row.addEventListener('click', function (e) {
-          if (e.target.closest('button')) return;
+          if (e.target.closest('button') || e.target.closest('select') || e.target.closest('input')) return;
           row.classList.toggle('is-selected');
         });
       });
     }
   }
 
-  /* ---- Handlers ---- */
+  /* ---- Handlers: Classes ---- */
 
   async function handleAddClass() {
     var name = prompt('Название нового класса:');
@@ -242,6 +402,8 @@
     }
   }
 
+  /* ---- Handlers: Import / Export ---- */
+
   async function handleImportSchool(event) {
     var file = event.target.files[0];
     if (!file) return;
@@ -268,7 +430,7 @@
       var buffer = await file.arrayBuffer();
       var incoming = importer.parseAsuStudentList(buffer);
       if (!incoming.length) { alert('Не удалось распознать учеников в файле (форма обучения "очная").'); return; }
-      if (!confirm('Найдено ' + incoming.length + ' учеников (очная форма).\n\nБудет выполнена синхронизация: новые ученики добавятся, существующие обновятся.\n\nПродолжить?')) return;
+      if (!confirm('Найдено ' + incoming.length + ' учеников (очная форма).\n\nБудет выполнена синхронизация:\n• Новые ученики — добавятся\n• Существующие — обновятся\n• Переведённые — переместятся в новый класс\n• Отсутствующие — уйдут в архив\n\nПродолжить?')) return;
       var report = await school.syncFromAsu(incoming);
       selectedClassId = null;
       render();
@@ -277,10 +439,15 @@
       msg += '• Добавлено: ' + report.added.length + '\n';
       msg += '• Обновлено: ' + report.updated.length + '\n';
       msg += '• Перемещено: ' + report.moved.length + '\n';
+      msg += '• В архив: ' + report.archived.length + '\n';
       msg += '• Без изменений: ' + report.skipped.length + '\n';
       if (report.conflicts.length > 0) {
         msg += '• Конфликтов: ' + report.conflicts.length + '\n';
         report.conflicts.forEach(function (c) { msg += '  - ' + c.incoming.fullName + ': ' + c.reason + '\n'; });
+      }
+      if (report.archived.length > 0 && report.archived.length <= 10) {
+        msg += '\nВ архив перемещены:\n';
+        report.archived.forEach(function (a) { msg += '  - ' + a.student.fullName + ' (' + a.student.className + ')\n'; });
       }
       alert(msg);
     } catch (e) {
@@ -316,6 +483,8 @@
       alert('Ошибка экспорта: ' + (e.message || e));
     }
   }
+
+  /* ---- Handlers: Students ---- */
 
   async function handleAddStudent(classId) {
     var fullName = prompt('ФИО ученика:');
@@ -353,8 +522,16 @@
     render();
   }
 
+  async function handleArchiveStudent(studentId) {
+    var reason = prompt('Причина архивации (необязательно):');
+    if (reason === null) return;
+    await school.archiveStudent(studentId, reason || 'Вручную');
+    if (selectedClassId) await school.renumberClass(selectedClassId);
+    render();
+  }
+
   async function handleDeleteStudent(studentId) {
-    if (!confirm('Удалить этого ученика?')) return;
+    if (!confirm('Удалить этого ученика навсегда? Если хотите сохранить данные, лучше переместите в архив.')) return;
     await school.deleteStudent(studentId);
     if (selectedClassId) await school.renumberClass(selectedClassId);
     render();
@@ -363,15 +540,97 @@
   async function handleMassMove() {
     var target = $('rosterMoveTarget');
     if (!target || !target.value) { alert('Выберите целевой класс.'); return; }
-    var ids = [];
-    document.querySelectorAll('.roster-table tbody tr.is-selected').forEach(function (row) {
-      ids.push(row.dataset.sid);
-    });
+    var ids = getSelectedIds();
     if (!ids.length) { alert('Выберите учеников (кликните по строкам).'); return; }
     if (!confirm('Переместить ' + ids.length + ' учеников?')) return;
     await school.moveStudents(ids, target.value);
     await school.renumberClass(target.value);
     if (selectedClassId) await school.renumberClass(selectedClassId);
+    render();
+  }
+
+  async function handleMassArchive() {
+    var ids = getSelectedIds();
+    if (!ids.length) { alert('Выберите учеников (кликните по строкам).'); return; }
+    if (!confirm('Переместить ' + ids.length + ' учеников в архив?')) return;
+    await school.archiveStudents(ids, 'Массовая архивация');
+    if (selectedClassId) await school.renumberClass(selectedClassId);
+    render();
+  }
+
+  function getSelectedIds() {
+    var ids = [];
+    document.querySelectorAll('.roster-table tbody tr.is-selected').forEach(function (row) {
+      if (row.dataset.sid) ids.push(row.dataset.sid);
+    });
+    return ids;
+  }
+
+  /* ---- Handlers: Archive ---- */
+
+  async function handleRestoreStudent(archivedId) {
+    try {
+      var s = await school.restoreStudent(archivedId);
+      await school.renumberClass(s.classId);
+      render();
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  async function handleDeleteArchived(id) {
+    if (!confirm('Удалить запись из архива навсегда?')) return;
+    await school.deleteArchivedStudent(id);
+    render();
+  }
+
+  /* ---- Handlers: Person lists (staff/parents/extra) ---- */
+
+  async function handleAddPerson(storeName) {
+    var fullName = prompt('ФИО:');
+    if (!fullName || !fullName.trim()) return;
+    var role = prompt('Роль / Должность (необязательно):', '');
+    var phone = prompt('Телефон (необязательно):', '');
+    var email = prompt('Email (необязательно):', '');
+    var note = prompt('Примечание (необязательно):', '');
+    await school[storeName].add({
+      fullName: fullName.trim(),
+      role: (role || '').trim(),
+      phone: (phone || '').trim(),
+      email: (email || '').trim(),
+      note: (note || '').trim()
+    });
+    render();
+  }
+
+  async function handleEditPerson(personId, storeName) {
+    var api = school[storeName];
+    var people = await api.getAll();
+    var p = people.find(function (x) { return x.id === personId; });
+    if (!p) return;
+    var fullName = prompt('ФИО:', p.fullName);
+    if (fullName === null) return;
+    var role = prompt('Роль / Должность:', p.role || '');
+    if (role === null) return;
+    var phone = prompt('Телефон:', p.phone || '');
+    if (phone === null) return;
+    var email = prompt('Email:', p.email || '');
+    if (email === null) return;
+    var note = prompt('Примечание:', p.note || '');
+    if (note === null) return;
+    await api.update(personId, {
+      fullName: fullName.trim(),
+      role: role.trim(),
+      phone: phone.trim(),
+      email: email.trim(),
+      note: note.trim()
+    });
+    render();
+  }
+
+  async function handleDeletePerson(personId, storeName) {
+    if (!confirm('Удалить эту запись?')) return;
+    await school[storeName].delete(personId);
     render();
   }
 

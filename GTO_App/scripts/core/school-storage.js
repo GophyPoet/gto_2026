@@ -11,7 +11,7 @@
   'use strict';
 
   var DB_NAME = 'gto-school-roster';
-  var DB_VERSION = 1;
+  var DB_VERSION = 2;
   var db = null;
 
   function open() {
@@ -26,6 +26,20 @@
           var store = d.createObjectStore('students', { keyPath: 'id' });
           store.createIndex('byClass', 'classId', { unique: false });
           store.createIndex('byNormalizedName', 'normalizedName', { unique: false });
+        }
+        /* v2: archive + staff + parents + extra */
+        if (!d.objectStoreNames.contains('archive')) {
+          var archStore = d.createObjectStore('archive', { keyPath: 'id' });
+          archStore.createIndex('byClass', 'originalClassName', { unique: false });
+        }
+        if (!d.objectStoreNames.contains('staff')) {
+          d.createObjectStore('staff', { keyPath: 'id' });
+        }
+        if (!d.objectStoreNames.contains('parents')) {
+          d.createObjectStore('parents', { keyPath: 'id' });
+        }
+        if (!d.objectStoreNames.contains('extra')) {
+          d.createObjectStore('extra', { keyPath: 'id' });
         }
       };
       req.onsuccess = function (e) { db = e.target.result; resolve(db); };
@@ -258,9 +272,10 @@
    */
   async function syncFromAsu(incomingStudents) {
     await init();
-    var report = { added: [], updated: [], moved: [], conflicts: [], skipped: [] };
+    var report = { added: [], updated: [], moved: [], archived: [], conflicts: [], skipped: [] };
     var allStudents = await getAllStudents();
     var allClasses = await getAllClasses();
+    var matchedStudentIds = new Set();
 
     /* Build lookup maps */
     var byUin = {};
@@ -325,6 +340,7 @@
       }
 
       if (matched) {
+        matchedStudentIds.add(matched.id);
         var changes = [];
         var patch = {};
 
@@ -364,6 +380,19 @@
       }
     }
 
+    /* Archive students not found in ASU data */
+    for (var si = 0; si < allStudents.length; si++) {
+      var existing = allStudents[si];
+      if (!matchedStudentIds.has(existing.id)) {
+        var existingClass = allClasses.find(function (c) { return c.id === existing.classId; });
+        await archiveStudent(existing.id, 'Не найден в АСУ РСО при синхронизации');
+        report.archived.push({
+          student: { fullName: existing.fullName, className: existingClass ? existingClass.name : '?' },
+          reason: 'Отсутствует в файле АСУ'
+        });
+      }
+    }
+
     /* Renumber all affected classes */
     var affectedClasses = new Set();
     report.added.forEach(function (r) {
@@ -374,6 +403,10 @@
       var cls = allClasses.find(function (c) { return c.name === r.to; });
       if (cls) affectedClasses.add(cls.id);
     });
+    report.archived.forEach(function (r) {
+      var cls = allClasses.find(function (c) { return c.name === r.student.className; });
+      if (cls) affectedClasses.add(cls.id);
+    });
     for (var clsId of affectedClasses) {
       await renumberClass(clsId);
     }
@@ -381,12 +414,179 @@
     return report;
   }
 
+  /* ======= Archive ======= */
+
+  /**
+   * Archive a student: move from students store to archive store.
+   * Preserves all data + adds archivedAt and reason.
+   */
+  async function archiveStudent(studentId, reason) {
+    await init();
+    var t = tx(['students', 'archive', 'classes'], 'readwrite');
+    var stuStore = t.objectStore('students');
+    var archStore = t.objectStore('archive');
+    var s = await reqP(stuStore.get(studentId));
+    if (!s) throw new Error('Ученик не найден');
+    /* Resolve class name for display */
+    var cls = await reqP(t.objectStore('classes').get(s.classId));
+    var archived = {
+      id: s.id,
+      classId: s.classId,
+      originalClassName: cls ? cls.name : '',
+      classNumber: s.classNumber,
+      fullName: s.fullName,
+      normalizedName: s.normalizedName,
+      uin: s.uin,
+      reason: reason || '',
+      createdAt: s.createdAt,
+      archivedAt: new Date().toISOString()
+    };
+    archStore.put(archived);
+    stuStore.delete(studentId);
+    await txDone(t);
+    return archived;
+  }
+
+  /**
+   * Archive multiple students at once.
+   */
+  async function archiveStudents(studentIds, reason) {
+    var results = [];
+    for (var i = 0; i < studentIds.length; i++) {
+      results.push(await archiveStudent(studentIds[i], reason));
+    }
+    return results;
+  }
+
+  /**
+   * Restore a student from archive back to active roster.
+   */
+  async function restoreStudent(archivedId) {
+    await init();
+    var t = tx(['students', 'archive', 'classes'], 'readwrite');
+    var archStore = t.objectStore('archive');
+    var stuStore = t.objectStore('students');
+    var a = await reqP(archStore.get(archivedId));
+    if (!a) throw new Error('Запись не найдена в архиве');
+    /* Verify target class still exists */
+    var cls = await reqP(t.objectStore('classes').get(a.classId));
+    if (!cls) throw new Error('Класс "' + a.originalClassName + '" больше не существует. Сначала создайте его.');
+    var now = new Date().toISOString();
+    var student = {
+      id: a.id,
+      classId: a.classId,
+      classNumber: null,
+      fullName: a.fullName,
+      normalizedName: a.normalizedName,
+      uin: a.uin || '',
+      createdAt: a.createdAt,
+      updatedAt: now
+    };
+    stuStore.put(student);
+    archStore.delete(archivedId);
+    await txDone(t);
+    return student;
+  }
+
+  async function deleteArchivedStudent(id) {
+    await init();
+    var t = tx(['archive'], 'readwrite');
+    t.objectStore('archive').delete(id);
+    await txDone(t);
+  }
+
+  async function getArchivedStudents() {
+    await init();
+    var all = await reqP(tx(['archive'], 'readonly').objectStore('archive').getAll());
+    all.sort(function (a, b) {
+      return (b.archivedAt || '').localeCompare(a.archivedAt || '');
+    });
+    return all;
+  }
+
+  /* ======= Generic person stores: staff, parents, extra ======= */
+
+  function personModel(data) {
+    var now = new Date().toISOString();
+    return {
+      id: data.id || 'per_' + genId(),
+      fullName: (data.fullName || '').trim(),
+      normalizedName: normalizeName(data.fullName),
+      role: (data.role || '').trim(),
+      phone: (data.phone || '').trim(),
+      email: (data.email || '').trim(),
+      note: (data.note || '').trim(),
+      createdAt: data.createdAt || now,
+      updatedAt: now
+    };
+  }
+
+  async function getAll(storeName) {
+    await init();
+    var all = await reqP(tx([storeName], 'readonly').objectStore(storeName).getAll());
+    all.sort(function (a, b) { return (a.fullName || '').localeCompare(b.fullName || '', 'ru'); });
+    return all;
+  }
+
+  async function addPerson(storeName, data) {
+    await init();
+    var person = personModel(data);
+    var t = tx([storeName], 'readwrite');
+    t.objectStore(storeName).put(person);
+    await txDone(t);
+    return person;
+  }
+
+  async function updatePerson(storeName, id, patch) {
+    await init();
+    var t = tx([storeName], 'readwrite');
+    var store = t.objectStore(storeName);
+    var p = await reqP(store.get(id));
+    if (!p) throw new Error('Запись не найдена');
+    Object.keys(patch).forEach(function (k) {
+      if (patch[k] !== undefined) p[k] = typeof patch[k] === 'string' ? patch[k].trim() : patch[k];
+    });
+    if (patch.fullName !== undefined) p.normalizedName = normalizeName(patch.fullName);
+    p.updatedAt = new Date().toISOString();
+    store.put(p);
+    await txDone(t);
+    return p;
+  }
+
+  async function deletePerson(storeName, id) {
+    await init();
+    var t = tx([storeName], 'readwrite');
+    t.objectStore(storeName).delete(id);
+    await txDone(t);
+  }
+
+  /* Convenience wrappers */
+  var staffApi = {
+    getAll: function () { return getAll('staff'); },
+    add: function (data) { return addPerson('staff', data); },
+    update: function (id, patch) { return updatePerson('staff', id, patch); },
+    delete: function (id) { return deletePerson('staff', id); }
+  };
+  var parentsApi = {
+    getAll: function () { return getAll('parents'); },
+    add: function (data) { return addPerson('parents', data); },
+    update: function (id, patch) { return updatePerson('parents', id, patch); },
+    delete: function (id) { return deletePerson('parents', id); }
+  };
+  var extraApi = {
+    getAll: function () { return getAll('extra'); },
+    add: function (data) { return addPerson('extra', data); },
+    update: function (id, patch) { return updatePerson('extra', id, patch); },
+    delete: function (id) { return deletePerson('extra', id); }
+  };
+
   /* ======= Stats ======= */
   async function getStats() {
     var classes = await getAllClasses();
     var students = await getAllStudents();
+    var archived = await getArchivedStudents();
     var withUin = students.filter(function (s) { return s.uin && s.uin !== '-' && s.uin !== ''; }).length;
-    return { classCount: classes.length, studentCount: students.length, withUin: withUin };
+    return { classCount: classes.length, studentCount: students.length, withUin: withUin, archivedCount: archived.length };
   }
 
   window.GTOSchool = {
@@ -411,6 +611,16 @@
     /* Import */
     importFullReplace: importFullReplace,
     syncFromAsu: syncFromAsu,
+    /* Archive */
+    archiveStudent: archiveStudent,
+    archiveStudents: archiveStudents,
+    restoreStudent: restoreStudent,
+    deleteArchivedStudent: deleteArchivedStudent,
+    getArchivedStudents: getArchivedStudents,
+    /* Staff / Parents / Extra */
+    staff: staffApi,
+    parents: parentsApi,
+    extra: extraApi,
     /* Stats */
     getStats: getStats
   };
