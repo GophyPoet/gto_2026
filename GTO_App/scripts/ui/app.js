@@ -41,8 +41,13 @@
     downloadCardsBtn: document.getElementById('downloadCardsBtn')
   };
 
-  /* Per-participant standards selections: { participantId: [test1, test2, ...] } */
-  var standardsSelections = {};
+  /* Standards selections: read/write through appState for persistence */
+  function getStdSelections() {
+    return appState.getStandardsSelections();
+  }
+  function setStdSelections(sel) {
+    appState.setStandardsSelections(sel);
+  }
 
   let directoryHandle = null;
   let currentClass = '';
@@ -259,7 +264,11 @@
       return true;
     });
 
+    /* Count how many in this class are not yet selected */
+    const unselectedInClass = students.filter((s) => !selectedIds.has(s.id));
+
     els.studentsTableWrap.innerHTML = `
+      ${unselectedInClass.length > 0 ? `<div class="standards-actions" style="margin-bottom:0.5rem"><button class="btn btn-secondary" id="addWholeClass" type="button">Добавить весь класс (${unselectedInClass.length})</button></div>` : ''}
       <table>
         <thead><tr><th>ФИО</th><th>Класс</th><th>УИН</th><th>Действие</th></tr></thead>
         <tbody>
@@ -274,6 +283,18 @@
         </tbody>
       </table>
     `;
+
+    /* Bind add-whole-class */
+    const addWholeClassBtn = document.getElementById('addWholeClass');
+    if (addWholeClassBtn) {
+      addWholeClassBtn.addEventListener('click', () => {
+        unselectedInClass.forEach((student) => {
+          appState.addParticipant(student);
+        });
+        render();
+      });
+    }
+
     els.studentsTableWrap.querySelectorAll('[data-add]').forEach((button) => {
       button.addEventListener('click', () => {
         const student = state.analysis.school.allStudents.find((item) => item.id === button.dataset.add);
@@ -431,6 +452,7 @@
 
     var allStages = await loadStandardsStages();
     var participants = state.selectedParticipants;
+    var sel = getStdSelections();
 
     /* Ensure index is valid */
     if (standardsCurrentParticipantIdx >= participants.length) standardsCurrentParticipantIdx = 0;
@@ -439,24 +461,42 @@
     var stageNum = parseStageNumber(stageLabel);
     var stageData = stageNum ? allStages.find(function (s) { return s.stageNumber === stageNum; }) : null;
 
-    /* Initialize selections for this participant if missing */
-    if (!standardsSelections[current.id] && stageData) {
-      var defaultTests = [];
-      stageData.items.forEach(function (item) {
-        if (item.disciplines.length === 1) {
-          defaultTests.push(item.disciplines[0]);
-        }
-        /* For multi: don't auto-select, let user choose */
+    /* Auto-initialize selections for participants that have none yet */
+    var dirty = false;
+    participants.forEach(function (p) {
+      if (sel[p.id]) return;
+      var pStage = parseStageNumber(resolveParticipantStage(p, state));
+      var pData = pStage ? allStages.find(function (s) { return s.stageNumber === pStage; }) : null;
+      if (!pData) return;
+      var defs = [];
+      pData.items.forEach(function (item) {
+        if (item.disciplines.length === 1) defs.push(item.disciplines[0]);
       });
-      standardsSelections[current.id] = defaultTests;
-    }
-    var selected = standardsSelections[current.id] || [];
+      sel[p.id] = defs;
+      dirty = true;
+    });
+    if (dirty) setStdSelections(sel);
+
+    var selected = sel[current.id] || [];
+
+    /* Summary bar */
+    var withSel = 0;
+    var withoutSel = 0;
+    participants.forEach(function (p) {
+      if (sel[p.id] && sel[p.id].length > 0) withSel++;
+      else withoutSel++;
+    });
+    var summaryHtml = '<div class="standards-summary">' +
+      '<span>Участников: <strong>' + participants.length + '</strong></span>' +
+      '<span>С выбранными испытаниями: <strong>' + withSel + '</strong></span>' +
+      (withoutSel > 0 ? '<span class="standards-warn">Без испытаний: <strong>' + withoutSel + '</strong></span>' : '') +
+      '</div>';
 
     /* Build participant navigation */
     var navHtml = '<div class="standards-participant-nav">';
     participants.forEach(function (p, idx) {
       var pStageLabel = resolveParticipantStage(p, state);
-      var hasSelections = standardsSelections[p.id] && standardsSelections[p.id].length > 0;
+      var hasSelections = sel[p.id] && sel[p.id].length > 0;
       navHtml += '<button class="class-tab' + (idx === standardsCurrentParticipantIdx ? ' is-active' : '') + '" data-pidx="' + idx + '" type="button">' +
         escapeHtml(p.fullName.split(' ').slice(0, 2).join(' ')) +
         '<small class="muted"> · ' + escapeHtml(pStageLabel || '?') + '</small>' +
@@ -472,15 +512,21 @@
     } else {
       itemsHtml += '<h4>' + escapeHtml(stageNum + ' ступень (' + stageData.ageRange + ')') + ' — ' + escapeHtml(current.fullName) + '</h4>';
       stageData.items.forEach(function (item) {
+        var allChecked = item.disciplines.every(function (d) { return selected.indexOf(d) >= 0; });
+        var noneChecked = item.disciplines.every(function (d) { return selected.indexOf(d) < 0; });
         itemsHtml += '<div class="standards-item">';
-        itemsHtml += '<div class="standards-item-header">Пункт ' + item.itemNumber;
+        itemsHtml += '<div class="standards-item-header"><span>Пункт ' + item.itemNumber;
         if (item.hint) itemsHtml += ' <span class="standards-hint">(' + escapeHtml(item.hint) + ')</span>';
         if (item.disciplines.length > 1) itemsHtml += ' <span class="standards-hint">(выберите из списка)</span>';
+        itemsHtml += '</span>';
+        if (item.disciplines.length > 1) {
+          itemsHtml += '<button class="btn btn-ghost standards-toggle-btn" data-toggle-item="' + item.itemNumber + '" type="button">' + (allChecked ? 'Снять все' : 'Выбрать все') + '</button>';
+        }
         itemsHtml += '</div>';
         item.disciplines.forEach(function (disc) {
           var checked = selected.indexOf(disc) >= 0;
           itemsHtml += '<label class="standards-discipline">' +
-            '<input type="checkbox" data-pid="' + current.id + '" data-disc="' + escapeHtml(disc) + '"' + (checked ? ' checked' : '') + '> ' +
+            '<input type="checkbox" data-pid="' + current.id + '" data-disc="' + escapeHtml(disc) + '" data-item="' + item.itemNumber + '"' + (checked ? ' checked' : '') + '> ' +
             escapeHtml(disc) +
             '</label>';
         });
@@ -488,14 +534,19 @@
       });
     }
 
-    /* Apply all button */
-    var applyAllHtml = '';
+    /* Action buttons */
+    var actionsHtml = '<div class="standards-actions">';
     if (participants.length > 1 && stageData) {
-      applyAllHtml = '<div class="standards-actions"><button class="btn btn-secondary" id="standardsApplyAll" type="button">Применить выбор ко всем с такой же ступенью</button></div>';
+      actionsHtml += '<button class="btn btn-secondary" id="standardsApplyAll" type="button">Применить выбор ко всем с ' + stageNum + ' ступенью</button>';
     }
+    if (stageData) {
+      actionsHtml += '<button class="btn btn-ghost" id="standardsSelectAllItems" type="button">Выбрать все испытания</button>';
+      actionsHtml += '<button class="btn btn-ghost" id="standardsClearAll" type="button">Снять все</button>';
+    }
+    actionsHtml += '</div>';
 
-    els.standardsWrap.innerHTML = navHtml +
-      '<div class="card">' + itemsHtml + applyAllHtml + '</div>';
+    els.standardsWrap.innerHTML = summaryHtml + navHtml +
+      '<div class="card">' + itemsHtml + actionsHtml + '</div>';
 
     /* Bind participant navigation */
     els.standardsWrap.querySelectorAll('[data-pidx]').forEach(function (btn) {
@@ -505,33 +556,85 @@
       });
     });
 
-    /* Bind checkbox changes */
+    /* Bind checkbox changes — persist on every change */
     els.standardsWrap.querySelectorAll('input[type="checkbox"][data-pid]').forEach(function (cb) {
       cb.addEventListener('change', function () {
         var pid = cb.dataset.pid;
         var disc = cb.dataset.disc;
-        if (!standardsSelections[pid]) standardsSelections[pid] = [];
+        var s = getStdSelections();
+        if (!s[pid]) s[pid] = [];
         if (cb.checked) {
-          if (standardsSelections[pid].indexOf(disc) < 0) {
-            standardsSelections[pid].push(disc);
-          }
+          if (s[pid].indexOf(disc) < 0) s[pid].push(disc);
         } else {
-          standardsSelections[pid] = standardsSelections[pid].filter(function (d) { return d !== disc; });
+          s[pid] = s[pid].filter(function (d) { return d !== disc; });
         }
+        setStdSelections(s);
       });
     });
 
-    /* Bind apply-all */
+    /* Bind toggle-all per item */
+    els.standardsWrap.querySelectorAll('[data-toggle-item]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var itemNum = parseInt(btn.dataset.toggleItem, 10);
+        var item = stageData.items.find(function (it) { return it.itemNumber === itemNum; });
+        if (!item) return;
+        var s = getStdSelections();
+        if (!s[current.id]) s[current.id] = [];
+        var allIn = item.disciplines.every(function (d) { return s[current.id].indexOf(d) >= 0; });
+        if (allIn) {
+          /* Remove all */
+          var removeSet = new Set(item.disciplines);
+          s[current.id] = s[current.id].filter(function (d) { return !removeSet.has(d); });
+        } else {
+          /* Add all missing */
+          item.disciplines.forEach(function (d) {
+            if (s[current.id].indexOf(d) < 0) s[current.id].push(d);
+          });
+        }
+        setStdSelections(s);
+        renderStandards();
+      });
+    });
+
+    /* Bind select-all and clear-all */
+    var selectAllBtn = document.getElementById('standardsSelectAllItems');
+    if (selectAllBtn && stageData) {
+      selectAllBtn.addEventListener('click', function () {
+        var s = getStdSelections();
+        var allDiscs = [];
+        stageData.items.forEach(function (item) {
+          item.disciplines.forEach(function (d) { allDiscs.push(d); });
+        });
+        s[current.id] = allDiscs;
+        setStdSelections(s);
+        renderStandards();
+      });
+    }
+    var clearAllBtn = document.getElementById('standardsClearAll');
+    if (clearAllBtn) {
+      clearAllBtn.addEventListener('click', function () {
+        var s = getStdSelections();
+        s[current.id] = [];
+        setStdSelections(s);
+        renderStandards();
+      });
+    }
+
+    /* Bind apply to same stage */
     var applyAllBtn = document.getElementById('standardsApplyAll');
     if (applyAllBtn) {
       applyAllBtn.addEventListener('click', function () {
-        var currentSelection = standardsSelections[current.id] || [];
+        var s = getStdSelections();
+        var currentSelection = (s[current.id] || []).slice();
+        var count = 0;
         participants.forEach(function (p) {
           var pStageNum = parseStageNumber(resolveParticipantStage(p, state));
-          if (pStageNum === stageNum) {
-            standardsSelections[p.id] = currentSelection.slice();
+          if (pStageNum === stageNum && p.id !== current.id) {
+            s[p.id] = currentSelection.slice();
+            count++;
           }
         });
+        setStdSelections(s);
         renderStandards();
       });
     }
@@ -549,13 +652,30 @@
     const rows = appState.buildGeneratedRows();
     const problemsCount = rows.reduce((sum, row) => sum + row.issues.length, 0);
     const missingRows = rows.filter((row) => row.issues.length).length;
+
+    /* Standards selections summary */
+    const stdSel = getStdSelections();
+    const withStandards = state.selectedParticipants.filter((p) => stdSel[p.id] && stdSel[p.id].length > 0).length;
+    const withoutStandards = state.selectedParticipants.length - withStandards;
+
     els.reviewStats.innerHTML = `
       <div class="stat-card"><strong>Строк в выгрузке</strong><div>${rows.length}</div></div>
       <div class="stat-card"><strong>Записей с проверкой</strong><div>${missingRows}</div></div>
       <div class="stat-card"><strong>Всего проблемных полей</strong><div>${problemsCount}</div></div>
       <div class="stat-card"><strong>Дата ГТО</strong><div>${escapeHtml(state.meta.eventDate || 'Не указана')}</div></div>
+      <div class="stat-card"><strong>С нормативами</strong><div>${withStandards} из ${state.selectedParticipants.length}</div></div>
     `;
-    renderIssues(els.reviewIssues, state.analysis.issues, 'Все поля заполнены. Можно скачивать Excel.');
+
+    /* Add warnings for participants without standards */
+    const allIssues = state.analysis.issues.slice();
+    if (withoutStandards > 0) {
+      state.selectedParticipants.forEach((p) => {
+        if (!stdSel[p.id] || stdSel[p.id].length === 0) {
+          allIssues.push({ severity: 'warning', title: 'Нет выбранных испытаний', message: p.fullName + ': не выбраны нормативы ГТО (карточка будет пустой)' });
+        }
+      });
+    }
+    renderIssues(els.reviewIssues, allIssues, 'Все поля заполнены. Можно скачивать Excel и карточки.');
 
     els.reviewTableWrap.innerHTML = rows.length ? `
       <table>
@@ -805,7 +925,7 @@
       els.downloadCardsBtn.textContent = 'Генерация…';
       await cardGen.generateCards(
         state.selectedParticipants,
-        standardsSelections,
+        getStdSelections(),
         { schoolName: state.meta.schoolName || '' }
       );
     } catch (error) {

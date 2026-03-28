@@ -27,11 +27,6 @@
   border-radius: 0.5rem;
   background: var(--color-surface, #f8fafc);
 }
-.standards-item-header {
-  font-weight: 600;
-  margin-bottom: 0.5rem;
-  font-size: 0.9rem;
-}
 .standards-hint {
   font-weight: 400;
   color: #64748b;
@@ -53,7 +48,35 @@
 }
 .standards-actions {
   margin-top: 1rem;
-  text-align: right;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.standards-summary {
+  display: flex;
+  gap: 1.5rem;
+  padding: 0.6rem 0.75rem;
+  background: var(--color-surface, #f8fafc);
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: 0.5rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.85rem;
+}
+.standards-warn {
+  color: #dc2626;
+}
+.standards-item-header {
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.standards-toggle-btn {
+  padding: 0.15rem 0.4rem !important;
+  font-size: 0.7rem !important;
 }
 
 /* ---- Standards management (dashboard) ---- */

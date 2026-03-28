@@ -10,6 +10,7 @@
     mappings: { school: {}, asu: {} },
     selectedParticipants: [],
     manualParticipants: [],
+    standardsSelections: {},
     generatedRows: []
   };
 
@@ -45,7 +46,19 @@
 
   function removeParticipant(id) {
     state.selectedParticipants = state.selectedParticipants.filter((item) => item.id !== id);
+    if (state.standardsSelections && state.standardsSelections[id]) {
+      delete state.standardsSelections[id];
+    }
     save();
+  }
+
+  function setStandardsSelections(selections) {
+    state.standardsSelections = selections;
+    save();
+  }
+
+  function getStandardsSelections() {
+    return state.standardsSelections || {};
   }
 
   function addManualParticipant(participant) {
@@ -159,6 +172,8 @@
     removeParticipant,
     addManualParticipant,
     setManualParticipants,
+    setStandardsSelections,
+    getStandardsSelections,
     buildStructureReport,
     buildGeneratedRows,
     reloadFromStorage,
