@@ -33,11 +33,16 @@
     manualDialog: document.getElementById('manualDialog'),
     manualForm: document.getElementById('manualForm'),
     saveManualBtn: document.getElementById('saveManualBtn'),
+    standardsWrap: document.getElementById('standardsWrap'),
     reviewStats: document.getElementById('reviewStats'),
     reviewIssues: document.getElementById('reviewIssues'),
     reviewTableWrap: document.getElementById('reviewTableWrap'),
-    downloadExcelBtn: document.getElementById('downloadExcelBtn')
+    downloadExcelBtn: document.getElementById('downloadExcelBtn'),
+    downloadCardsBtn: document.getElementById('downloadCardsBtn')
   };
+
+  /* Per-participant standards selections: { participantId: [test1, test2, ...] } */
+  var standardsSelections = {};
 
   let directoryHandle = null;
   let currentClass = '';
@@ -61,6 +66,7 @@
     renderProjectSummary();
     renderPrepare();
     renderSelect();
+    renderStandards();
     renderReview();
     updateButtons();
   }
@@ -358,6 +364,179 @@
     });
   }
 
+  /* ---- Standards selection step ---- */
+  var standardsCurrentParticipantIdx = 0;
+  var standardsStagesCache = null;
+
+  async function loadStandardsStages() {
+    if (window.GTOApp._standardsCacheDirty) {
+      standardsStagesCache = null;
+      window.GTOApp._standardsCacheDirty = false;
+    }
+    if (standardsStagesCache) return standardsStagesCache;
+    if (window.GTOStandards) {
+      await window.GTOStandards.init();
+      standardsStagesCache = await window.GTOStandards.getAllStages();
+    } else {
+      standardsStagesCache = window.GTOApp.defaultStandards || [];
+    }
+    return standardsStagesCache;
+  }
+
+  function resolveParticipantStage(participant, state) {
+    /* Use the stage from buildGeneratedRows or calculate */
+    var stages = state.analysis.template ? state.analysis.template.stages : [];
+    var birthDate = participant.birthDate || '';
+    var ageValue = window.GTOApp.calculations
+      ? window.GTOApp.calculations.calculateAgeOnDate(birthDate, state.meta.eventDate)
+      : null;
+    var stageMeta = participant.stage
+      ? { label: participant.stage }
+      : (window.GTOApp.calculations ? window.GTOApp.calculations.resolveStage(ageValue, stages) : null);
+    return stageMeta ? stageMeta.label : '';
+  }
+
+  function parseStageNumber(stageLabel) {
+    if (!stageLabel) return null;
+    var str = String(stageLabel).trim();
+    /* Extract the part before parenthesis (stage name) */
+    var beforeParen = str.split('(')[0].trim().toUpperCase();
+    /* Try Roman numeral first (labels from template are like "I", "V", "XVIII") */
+    var romanMap = {
+      'XVIII': 18, 'XVII': 17, 'XVI': 16, 'XV': 15, 'XIV': 14,
+      'XIII': 13, 'XII': 12, 'XI': 11, 'X': 10, 'IX': 9, 'VIII': 8,
+      'VII': 7, 'VI': 6, 'V': 5, 'IV': 4, 'III': 3, 'II': 2, 'I': 1
+    };
+    /* Match if beforeParen IS a Roman numeral (possibly with "ступень" suffix) */
+    var romanPart = beforeParen.replace(/\s*СТУПЕНЬ\s*/, '').trim();
+    if (romanMap[romanPart] !== undefined) return romanMap[romanPart];
+    /* Try Arabic number in the beforeParen part */
+    var m = beforeParen.match(/(\d+)/);
+    if (m) return parseInt(m[1], 10);
+    /* Fallback: check anywhere in the label for Roman */
+    var keys = Object.keys(romanMap);
+    for (var i = 0; i < keys.length; i++) {
+      if (beforeParen === keys[i]) return romanMap[keys[i]];
+    }
+    return null;
+  }
+
+  async function renderStandards() {
+    if (!els.standardsWrap) return;
+    var state = appState.getState();
+    if (!state.selectedParticipants.length) {
+      els.standardsWrap.innerHTML = '<div class="empty-state">Сначала выберите участников на предыдущем шаге.</div>';
+      return;
+    }
+
+    var allStages = await loadStandardsStages();
+    var participants = state.selectedParticipants;
+
+    /* Ensure index is valid */
+    if (standardsCurrentParticipantIdx >= participants.length) standardsCurrentParticipantIdx = 0;
+    var current = participants[standardsCurrentParticipantIdx];
+    var stageLabel = resolveParticipantStage(current, state);
+    var stageNum = parseStageNumber(stageLabel);
+    var stageData = stageNum ? allStages.find(function (s) { return s.stageNumber === stageNum; }) : null;
+
+    /* Initialize selections for this participant if missing */
+    if (!standardsSelections[current.id] && stageData) {
+      var defaultTests = [];
+      stageData.items.forEach(function (item) {
+        if (item.disciplines.length === 1) {
+          defaultTests.push(item.disciplines[0]);
+        }
+        /* For multi: don't auto-select, let user choose */
+      });
+      standardsSelections[current.id] = defaultTests;
+    }
+    var selected = standardsSelections[current.id] || [];
+
+    /* Build participant navigation */
+    var navHtml = '<div class="standards-participant-nav">';
+    participants.forEach(function (p, idx) {
+      var pStageLabel = resolveParticipantStage(p, state);
+      var hasSelections = standardsSelections[p.id] && standardsSelections[p.id].length > 0;
+      navHtml += '<button class="class-tab' + (idx === standardsCurrentParticipantIdx ? ' is-active' : '') + '" data-pidx="' + idx + '" type="button">' +
+        escapeHtml(p.fullName.split(' ').slice(0, 2).join(' ')) +
+        '<small class="muted"> · ' + escapeHtml(pStageLabel || '?') + '</small>' +
+        (hasSelections ? ' <span class="standards-check-mark">&#10003;</span>' : '') +
+        '</button>';
+    });
+    navHtml += '</div>';
+
+    /* Build standards items for current participant */
+    var itemsHtml = '';
+    if (!stageData) {
+      itemsHtml = '<div class="empty-state">Для участника ' + escapeHtml(current.fullName) + ' не удалось определить ступень (' + escapeHtml(stageLabel || 'нет данных') + '). Проверьте дату рождения и дату ГТО.</div>';
+    } else {
+      itemsHtml += '<h4>' + escapeHtml(stageNum + ' ступень (' + stageData.ageRange + ')') + ' — ' + escapeHtml(current.fullName) + '</h4>';
+      stageData.items.forEach(function (item) {
+        itemsHtml += '<div class="standards-item">';
+        itemsHtml += '<div class="standards-item-header">Пункт ' + item.itemNumber;
+        if (item.hint) itemsHtml += ' <span class="standards-hint">(' + escapeHtml(item.hint) + ')</span>';
+        if (item.disciplines.length > 1) itemsHtml += ' <span class="standards-hint">(выберите из списка)</span>';
+        itemsHtml += '</div>';
+        item.disciplines.forEach(function (disc) {
+          var checked = selected.indexOf(disc) >= 0;
+          itemsHtml += '<label class="standards-discipline">' +
+            '<input type="checkbox" data-pid="' + current.id + '" data-disc="' + escapeHtml(disc) + '"' + (checked ? ' checked' : '') + '> ' +
+            escapeHtml(disc) +
+            '</label>';
+        });
+        itemsHtml += '</div>';
+      });
+    }
+
+    /* Apply all button */
+    var applyAllHtml = '';
+    if (participants.length > 1 && stageData) {
+      applyAllHtml = '<div class="standards-actions"><button class="btn btn-secondary" id="standardsApplyAll" type="button">Применить выбор ко всем с такой же ступенью</button></div>';
+    }
+
+    els.standardsWrap.innerHTML = navHtml +
+      '<div class="card">' + itemsHtml + applyAllHtml + '</div>';
+
+    /* Bind participant navigation */
+    els.standardsWrap.querySelectorAll('[data-pidx]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        standardsCurrentParticipantIdx = parseInt(btn.dataset.pidx, 10);
+        renderStandards();
+      });
+    });
+
+    /* Bind checkbox changes */
+    els.standardsWrap.querySelectorAll('input[type="checkbox"][data-pid]').forEach(function (cb) {
+      cb.addEventListener('change', function () {
+        var pid = cb.dataset.pid;
+        var disc = cb.dataset.disc;
+        if (!standardsSelections[pid]) standardsSelections[pid] = [];
+        if (cb.checked) {
+          if (standardsSelections[pid].indexOf(disc) < 0) {
+            standardsSelections[pid].push(disc);
+          }
+        } else {
+          standardsSelections[pid] = standardsSelections[pid].filter(function (d) { return d !== disc; });
+        }
+      });
+    });
+
+    /* Bind apply-all */
+    var applyAllBtn = document.getElementById('standardsApplyAll');
+    if (applyAllBtn) {
+      applyAllBtn.addEventListener('click', function () {
+        var currentSelection = standardsSelections[current.id] || [];
+        participants.forEach(function (p) {
+          var pStageNum = parseStageNumber(resolveParticipantStage(p, state));
+          if (pStageNum === stageNum) {
+            standardsSelections[p.id] = currentSelection.slice();
+          }
+        });
+        renderStandards();
+      });
+    }
+  }
+
   function renderReview() {
     const state = appState.getState();
     if (!state.analysis.school || !state.analysis.school.allStudents || !state.analysis.school.allStudents.length) {
@@ -417,6 +596,7 @@
     const state = appState.getState();
     if (stepId === 'prepare') return true;
     if (stepId === 'select') return Boolean(state.analysis.school && state.analysis.school.allStudents && state.analysis.school.allStudents.length > 0);
+    if (stepId === 'standards') return Boolean(state.selectedParticipants.length);
     if (stepId === 'review') return Boolean(state.selectedParticipants.length);
     return false;
   }
@@ -429,6 +609,7 @@
     const nextStep = config.steps[nextIndex];
     if (!canOpenStep(nextStep.id)) {
       if (nextStep.id === 'select') alert('Сначала загрузите и проанализируйте два файла.');
+      if (nextStep.id === 'standards') alert('Сначала выберите хотя бы одного участника.');
       if (nextStep.id === 'review') alert('Сначала выберите хотя бы одного участника.');
       return;
     }
@@ -603,6 +784,39 @@
       render();
     });
     els.downloadExcelBtn.addEventListener('click', downloadExcel);
+    if (els.downloadCardsBtn) {
+      els.downloadCardsBtn.addEventListener('click', downloadCards);
+    }
+  }
+
+  async function downloadCards() {
+    try {
+      var state = appState.getState();
+      if (!state.selectedParticipants.length) {
+        alert('Нет выбранных участников.');
+        return;
+      }
+      var cardGen = window.GTOApp.cardGenerator;
+      if (!cardGen) {
+        alert('Модуль генерации карточек не загружен.');
+        return;
+      }
+      els.downloadCardsBtn.disabled = true;
+      els.downloadCardsBtn.textContent = 'Генерация…';
+      await cardGen.generateCards(
+        state.selectedParticipants,
+        standardsSelections,
+        { schoolName: state.meta.schoolName || '' }
+      );
+    } catch (error) {
+      logger.error(error);
+      alert(error.message || 'Не удалось сгенерировать карточки.');
+    } finally {
+      if (els.downloadCardsBtn) {
+        els.downloadCardsBtn.disabled = false;
+        els.downloadCardsBtn.textContent = 'Скачать карточки (ZIP)';
+      }
+    }
   }
 
   /* ---- Load data from school roster (IndexedDB) ---- */
