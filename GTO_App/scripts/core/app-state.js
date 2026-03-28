@@ -17,6 +17,14 @@
 
   function save() { storage.save(state); }
   function getState() { return state; }
+
+  /**
+   * INTEGRATION POINT: Re-load state from storage after async session init.
+   * Called once by app.js after storage.initSession() resolves.
+   */
+  function reloadFromStorage() {
+    state = storage.load() || utils.clone(emptyState);
+  }
   function replaceState(nextState) { state = { ...utils.clone(emptyState), ...nextState }; save(); }
   function updateMeta(patch) { state.meta = { ...state.meta, ...patch }; save(); }
   function setCurrentStep(step) { state.currentStep = step; save(); }
@@ -153,6 +161,7 @@
     setManualParticipants,
     buildStructureReport,
     buildGeneratedRows,
+    reloadFromStorage,
     save
   };
 })();
