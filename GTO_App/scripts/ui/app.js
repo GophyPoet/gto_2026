@@ -184,7 +184,14 @@
     `;
   }
 
-  function renderSelect() {
+  /* Fixed extra tabs that show people from roster stores */
+  const EXTRA_TABS = [
+    { key: '__staff', label: 'Работники школы', store: 'staff' },
+    { key: '__parents', label: 'Родители', store: 'parents' },
+    { key: '__extra', label: 'Дополнительно', store: 'extra' }
+  ];
+
+  async function renderSelect() {
     const state = appState.getState();
     if (!state.analysis.school) {
       els.studentsTableWrap.innerHTML = '<div class="empty-state">Сначала проанализируйте файлы на первом шаге.</div>';
@@ -193,11 +200,22 @@
     }
 
     const classes = state.analysis.school.classes;
-    const classItem = classes.find((item) => item.name === currentClass) || classes[0];
-    currentClass = classItem ? classItem.name : '';
-    els.classTabs.innerHTML = classes.map((item) => `
+    const isExtraTab = currentClass && currentClass.startsWith('__');
+    const classItem = isExtraTab ? null : (classes.find((item) => item.name === currentClass) || classes[0]);
+    if (!isExtraTab) currentClass = classItem ? classItem.name : '';
+
+    /* Build tabs: classes + separator + extra tabs */
+    let tabsHtml = classes.map((item) => `
       <button class="class-tab ${item.name === currentClass ? 'is-active' : ''}" data-class="${item.name}" type="button">${item.name}</button>
     `).join('');
+
+    tabsHtml += '<span class="class-tab-sep"></span>';
+
+    EXTRA_TABS.forEach((tab) => {
+      tabsHtml += `<button class="class-tab class-tab-fixed ${currentClass === tab.key ? 'is-active' : ''}" data-class="${tab.key}" type="button">${tab.label}</button>`;
+    });
+
+    els.classTabs.innerHTML = tabsHtml;
     els.classTabs.querySelectorAll('[data-class]').forEach((button) => {
       button.addEventListener('click', () => {
         currentClass = button.dataset.class;
@@ -205,6 +223,17 @@
       });
     });
 
+    /* Render content based on active tab */
+    if (isExtraTab) {
+      await renderExtraTab(currentClass, state);
+    } else {
+      renderStudentTable(classItem, state);
+    }
+
+    renderSelectedList(state);
+  }
+
+  function renderStudentTable(classItem, state) {
     if (!classItem) {
       els.studentsTableWrap.innerHTML = '<div class="empty-state">Классы не найдены.</div>';
       return;
@@ -248,7 +277,69 @@
         }
       });
     });
+  }
 
+  async function renderExtraTab(tabKey, state) {
+    const tab = EXTRA_TABS.find((t) => t.key === tabKey);
+    if (!tab || !window.GTOSchool) {
+      els.studentsTableWrap.innerHTML = '<div class="empty-state">Данные недоступны.</div>';
+      return;
+    }
+
+    const api = window.GTOSchool[tab.store];
+    const people = await api.getAll();
+    const selectedIds = new Set(state.selectedParticipants.map((item) => item.id));
+    const searchValue = els.studentSearchInput.value.trim().toUpperCase();
+
+    const filtered = people.filter((p) => {
+      if (searchValue && !p.fullName.toUpperCase().includes(searchValue)) return false;
+      return true;
+    });
+
+    if (!filtered.length) {
+      els.studentsTableWrap.innerHTML = `<div class="empty-state">Список "${tab.label}" пуст. Добавьте участников в школьном реестре на главной.</div>`;
+      return;
+    }
+
+    els.studentsTableWrap.innerHTML = `
+      <table>
+        <thead><tr><th>ФИО</th><th>Роль / Должность</th><th>Телефон</th><th>Действие</th></tr></thead>
+        <tbody>
+          ${filtered.map((person) => `
+            <tr>
+              <td>${escapeHtml(person.fullName)}</td>
+              <td>${escapeHtml(person.role || '-')}</td>
+              <td>${escapeHtml(person.phone || '-')}</td>
+              <td>${selectedIds.has(person.id) ? 'Уже в заявке' : `<button class="btn btn-primary" data-add-person="${person.id}" data-store="${tab.store}" type="button">Добавить</button>`}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+    els.studentsTableWrap.querySelectorAll('[data-add-person]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const api2 = window.GTOSchool[button.dataset.store];
+        const allPeople = await api2.getAll();
+        const person = allPeople.find((p) => p.id === button.dataset.addPerson);
+        if (person) {
+          appState.addParticipant({
+            id: person.id,
+            fullName: person.fullName,
+            className: person.role || tab.label,
+            uin: '',
+            gender: '',
+            birthDate: '',
+            documentNumber: '',
+            address: '',
+            source: tab.store
+          });
+          render();
+        }
+      });
+    });
+  }
+
+  function renderSelectedList(state) {
     els.selectedCountBadge.textContent = `${state.selectedParticipants.length} участников`;
     els.selectedList.innerHTML = state.selectedParticipants.length ? state.selectedParticipants.map((participant) => `
       <div class="selected-row">
