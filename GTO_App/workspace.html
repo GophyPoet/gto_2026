@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ГТО: рабочее пространство</title>
+  <link rel="stylesheet" href="styles/main.css">
+  <link rel="stylesheet" href="styles/workspace-bar.css">
+</head>
+<body>
+  <!-- Session context bar (integration point — shown only when opened from dashboard) -->
+  <div id="sessionBar" class="session-bar" style="display:none">
+    <div class="session-bar-inner">
+      <a href="index.html" class="session-bar-back" id="backToDashboard">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M11 14L6 9l5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        На главную
+      </a>
+      <div class="session-bar-info">
+        <span class="session-bar-label" id="sessionBarLabel">Загрузка...</span>
+        <span class="session-bar-save" id="sessionBarSave"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="page-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">ГТО</div>
+        <div>
+          <h1>Формирование заявок</h1>
+          <p>Один локальный файл запуска: `index.html`</p>
+        </div>
+      </div>
+
+      <nav class="step-nav" id="stepNav"></nav>
+
+      <section class="status-panel">
+        <h2>Состояние проекта</h2>
+        <div id="projectSummary" class="stack gap-sm"></div>
+      </section>
+    </aside>
+
+    <main class="content">
+      <header class="hero">
+        <div>
+          <span class="hero-kicker">Локальный режим</span>
+          <h2 id="screenTitle">Подготовка данных</h2>
+          <p id="screenDescription">Загрузите файлы, проверьте распознавание и сохраните проект.</p>
+        </div>
+        <div class="hero-actions">
+          <button id="prevStepBtn" class="btn btn-ghost" type="button">Назад</button>
+          <button id="nextStepBtn" class="btn btn-primary" type="button">Далее</button>
+        </div>
+      </header>
+
+      <section id="screen-prepare" class="screen is-active">
+        <section class="card">
+          <div class="section-head">
+            <div>
+              <h3>Основные сведения</h3>
+              <p>Эти данные будут использованы в итоговой заявке.</p>
+            </div>
+            <div class="actions-row">
+              <button id="chooseFolderBtn" class="btn btn-secondary" type="button">Выбрать рабочую папку</button>
+              <button id="saveProjectBtn" class="btn btn-secondary" type="button">Сохранить проект</button>
+              <button id="exportStateBtn" class="btn btn-secondary" type="button">Экспорт проекта</button>
+              <label class="btn btn-ghost file-btn">
+                Импорт проекта
+                <input id="importStateInput" type="file" accept=".json">
+              </label>
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <label>
+              <span>Название школы</span>
+              <input id="schoolNameInput" type="text" placeholder="Например: МБУ &quot;Школа №71&quot;">
+            </label>
+            <label>
+              <span>ФИО директора</span>
+              <input id="directorInput" type="text" placeholder="Например: Архипова Л.В.">
+            </label>
+            <label>
+              <span>Дата предоставления заявки</span>
+              <input id="submissionDateInput" type="date">
+            </label>
+            <label>
+              <span>Дата прохождения ГТО</span>
+              <input id="eventDateInput" type="date">
+            </label>
+          </div>
+        </section>
+
+        <section class="card">
+          <h3>Загрузка файлов</h3>
+          <div class="upload-grid">
+            <label class="upload-card">
+              <span class="upload-title">Основной файл базы школы</span>
+              <span class="upload-hint">Классы, ФИО, УИН</span>
+              <input id="schoolFileInput" type="file" accept=".xlsx,.xls">
+            </label>
+            <label class="upload-card">
+              <span class="upload-title">Список обучающихся АСУ РСО</span>
+              <span class="upload-hint">Пол, дата рождения, документ, адрес</span>
+              <input id="asuFileInput" type="file" accept=".xlsx,.xls">
+            </label>
+            <div class="upload-card upload-card-static">
+              <span class="upload-title">Встроенный шаблон заявки</span>
+              <span class="upload-hint">Используется образец `ЗаявкаШколы71_ГТО.xlsx`, уже встроенный в проект</span>
+            </div>
+          </div>
+
+          <div class="actions-row">
+            <button id="analyzeBtn" class="btn btn-primary" type="button">Проанализировать файлы</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <h3>Результат анализа</h3>
+          <div id="analysisSummary" class="stack"></div>
+        </section>
+
+        <section class="card">
+          <h3>Ручное подтверждение колонок</h3>
+          <div id="mappingEditor" class="mapping-grid"></div>
+        </section>
+
+        <section class="card">
+          <h3>Журнал предупреждений</h3>
+          <div id="issuesList" class="issue-list"></div>
+        </section>
+      </section>
+
+      <section id="screen-select" class="screen">
+        <section class="card">
+          <div class="toolbar">
+            <label class="toolbar-field grow">
+              <span>Поиск по ФИО</span>
+              <input id="studentSearchInput" type="search" placeholder="Введите фамилию или имя">
+            </label>
+            <label class="toolbar-field">
+              <span>Фильтр</span>
+              <select id="studentFilterSelect">
+                <option value="all">Все</option>
+                <option value="missingUin">Без УИН</option>
+                <option value="selected">Уже добавленные</option>
+                <option value="unselected">Еще не добавленные</option>
+              </select>
+            </label>
+            <button id="addManualBtn" class="btn btn-secondary" type="button">Добавить вручную</button>
+          </div>
+
+          <div id="classTabs" class="class-tabs"></div>
+          <div id="studentsTableWrap" class="table-wrap"></div>
+        </section>
+
+        <section class="card">
+          <div class="section-head">
+            <div>
+              <h3>Выбранные участники</h3>
+              <p>Список автоматически сортируется по алфавиту.</p>
+            </div>
+            <div id="selectedCountBadge" class="badge">0 участников</div>
+          </div>
+          <div id="selectedList" class="selected-list"></div>
+        </section>
+      </section>
+
+      <section id="screen-review" class="screen">
+        <section class="card">
+          <div class="stats-grid" id="reviewStats"></div>
+        </section>
+
+        <section class="card">
+          <div class="section-head">
+            <div>
+              <h3>Проблемы перед выгрузкой</h3>
+              <p>Нераспознанные поля будут заменены на прочерк и отмечены красным в Excel.</p>
+            </div>
+            <button id="downloadExcelBtn" class="btn btn-primary" type="button">Скачать Excel-заявку</button>
+          </div>
+          <div id="reviewIssues" class="issue-list"></div>
+        </section>
+
+        <section class="card">
+          <h3>Предпросмотр заявки</h3>
+          <div id="reviewTableWrap" class="table-wrap"></div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="manualDialog" class="dialog">
+    <form method="dialog" id="manualForm" class="dialog-form">
+      <div class="dialog-head">
+        <h3>Добавить участника вручную</h3>
+        <button class="icon-btn" value="cancel" type="submit">×</button>
+      </div>
+      <div class="form-grid">
+        <label><span>ФИО</span><input name="fullName" type="text" required></label>
+        <label><span>Класс или группа</span><input name="className" type="text"></label>
+        <label><span>УИН / WIN</span><input name="uin" type="text"></label>
+        <label>
+          <span>Пол</span>
+          <select name="gender">
+            <option value="">Не указано</option>
+            <option value="мужской">Мужской</option>
+            <option value="женский">Женский</option>
+          </select>
+        </label>
+        <label><span>Дата рождения</span><input name="birthDate" type="date"></label>
+        <label><span>Номер документа</span><input name="documentNumber" type="text"></label>
+        <label><span>Адрес проживания</span><input name="address" type="text"></label>
+        <label><span>Место учебы</span><input name="schoolName" type="text"></label>
+      </div>
+      <div class="dialog-actions">
+        <button class="btn btn-secondary" value="cancel" type="submit">Отмена</button>
+        <button id="saveManualBtn" class="btn btn-primary" value="default" type="button">Добавить</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="assets/vendor/xlsx.full.min.js"></script>
+  <script src="assets/vendor/exceljs.min.js"></script>
+  <script src="scripts/core/config.js"></script>
+  <script src="scripts/core/builtin-template.js"></script>
+  <script src="scripts/core/utils.js"></script>
+  <script src="scripts/core/logger.js"></script>
+  <script src="scripts/core/session-storage.js"></script>
+  <script src="scripts/core/storage.js"></script>
+  <script src="scripts/data/normalizer.js"></script>
+  <script src="scripts/data/calculations.js"></script>
+  <script src="scripts/data/mapper.js"></script>
+  <script src="scripts/excel/excel-reader.js"></script>
+  <script src="scripts/excel/exporter.js"></script>
+  <script src="scripts/core/app-state.js"></script>
+  <script src="scripts/ui/app.js"></script>
+</body>
+</html>

@@ -3,221 +3,123 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ГТО: локальное приложение для заявок</title>
-  <link rel="stylesheet" href="styles/main.css">
+  <title>ГТО — Центр управления</title>
+  <link rel="stylesheet" href="styles/dashboard.css">
 </head>
 <body>
-  <div class="page-shell">
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-mark">ГТО</div>
-        <div>
-          <h1>Формирование заявок</h1>
-          <p>Один локальный файл запуска: `index.html`</p>
+  <nav class="topnav">
+    <div class="topnav-inner">
+      <div class="topnav-brand">
+        <div class="topnav-logo">ГТО</div>
+        <span class="topnav-title">Центр управления</span>
+      </div>
+      <div class="topnav-links">
+        <a href="#" class="topnav-link is-active" data-tab="dates">Даты проведения</a>
+        <a href="#" class="topnav-link" data-tab="analytics">Аналитика</a>
+        <a href="#" class="topnav-link" data-tab="stats">Статистика</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="dashboard">
+    <!-- Hero section -->
+    <section class="hero-section">
+      <div class="hero-content">
+        <div class="hero-badge">Локальное приложение</div>
+        <h1>Готов к труду и обороне</h1>
+        <p>Управляйте заявками на сдачу ГТО. Создавайте даты проведения, формируйте списки участников и выгружайте готовые заявки в Excel.</p>
+        <div class="hero-stats" id="heroStats"></div>
+      </div>
+      <div class="hero-visual">
+        <div class="hero-emblem">
+          <div class="emblem-ring">
+            <div class="emblem-inner">ГТО</div>
+          </div>
+          <div class="emblem-text">Формирование заявок</div>
         </div>
       </div>
+    </section>
 
-      <nav class="step-nav" id="stepNav"></nav>
-
-      <section class="status-panel">
-        <h2>Состояние проекта</h2>
-        <div id="projectSummary" class="stack gap-sm"></div>
-      </section>
-    </aside>
-
-    <main class="content">
-      <header class="hero">
+    <!-- Dates tab -->
+    <section class="tab-content is-active" id="tab-dates">
+      <div class="section-header">
         <div>
-          <span class="hero-kicker">Локальный режим</span>
-          <h2 id="screenTitle">Подготовка данных</h2>
-          <p id="screenDescription">Загрузите файлы, проверьте распознавание и сохраните проект.</p>
+          <h2>Даты проведения ГТО</h2>
+          <p class="section-subtitle">Каждая дата — отдельная рабочая сессия с собственными данными</p>
         </div>
-        <div class="hero-actions">
-          <button id="prevStepBtn" class="btn btn-ghost" type="button">Назад</button>
-          <button id="nextStepBtn" class="btn btn-primary" type="button">Далее</button>
+        <button class="btn btn-primary btn-lg" id="createSessionBtn" type="button">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          Создать новую дату ГТО
+        </button>
+      </div>
+
+      <div id="sessionsList" class="sessions-grid">
+        <!-- Sessions will be rendered here -->
+      </div>
+    </section>
+
+    <!-- Analytics tab (stub) -->
+    <section class="tab-content" id="tab-analytics">
+      <div class="stub-screen">
+        <div class="stub-icon">
+          <svg width="48" height="48" viewBox="0 0 48 48" fill="none"><rect x="6" y="22" width="8" height="20" rx="2" fill="currentColor" opacity="0.3"/><rect x="20" y="14" width="8" height="28" rx="2" fill="currentColor" opacity="0.5"/><rect x="34" y="6" width="8" height="36" rx="2" fill="currentColor" opacity="0.8"/></svg>
         </div>
-      </header>
+        <h2>Аналитика</h2>
+        <p>Раздел аналитики находится в разработке. Здесь появятся сводные данные по всем датам проведения ГТО.</p>
+      </div>
+    </section>
 
-      <section id="screen-prepare" class="screen is-active">
-        <section class="card">
-          <div class="section-head">
-            <div>
-              <h3>Основные сведения</h3>
-              <p>Эти данные будут использованы в итоговой заявке.</p>
-            </div>
-            <div class="actions-row">
-              <button id="chooseFolderBtn" class="btn btn-secondary" type="button">Выбрать рабочую папку</button>
-              <button id="saveProjectBtn" class="btn btn-secondary" type="button">Сохранить проект</button>
-              <button id="exportStateBtn" class="btn btn-secondary" type="button">Экспорт проекта</button>
-              <label class="btn btn-ghost file-btn">
-                Импорт проекта
-                <input id="importStateInput" type="file" accept=".json">
-              </label>
-            </div>
-          </div>
+    <!-- Stats tab (stub) -->
+    <section class="tab-content" id="tab-stats">
+      <div class="stub-screen">
+        <div class="stub-icon">
+          <svg width="48" height="48" viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="18" stroke="currentColor" stroke-width="3" opacity="0.3"/><path d="M24 6a18 18 0 0 1 18 18" stroke="currentColor" stroke-width="3" stroke-linecap="round" opacity="0.8"/><circle cx="24" cy="24" r="6" fill="currentColor" opacity="0.5"/></svg>
+        </div>
+        <h2>Статистика</h2>
+        <p>Раздел статистики находится в разработке. Здесь появятся статистические отчёты и графики.</p>
+      </div>
+    </section>
+  </main>
 
-          <div class="form-grid">
-            <label>
-              <span>Название школы</span>
-              <input id="schoolNameInput" type="text" placeholder="Например: МБУ &quot;Школа №71&quot;">
-            </label>
-            <label>
-              <span>ФИО директора</span>
-              <input id="directorInput" type="text" placeholder="Например: Архипова Л.В.">
-            </label>
-            <label>
-              <span>Дата предоставления заявки</span>
-              <input id="submissionDateInput" type="date">
-            </label>
-            <label>
-              <span>Дата прохождения ГТО</span>
-              <input id="eventDateInput" type="date">
-            </label>
-          </div>
-        </section>
-
-        <section class="card">
-          <h3>Загрузка файлов</h3>
-          <div class="upload-grid">
-            <label class="upload-card">
-              <span class="upload-title">Основной файл базы школы</span>
-              <span class="upload-hint">Классы, ФИО, УИН</span>
-              <input id="schoolFileInput" type="file" accept=".xlsx,.xls">
-            </label>
-            <label class="upload-card">
-              <span class="upload-title">Список обучающихся АСУ РСО</span>
-              <span class="upload-hint">Пол, дата рождения, документ, адрес</span>
-              <input id="asuFileInput" type="file" accept=".xlsx,.xls">
-            </label>
-            <div class="upload-card upload-card-static">
-              <span class="upload-title">Встроенный шаблон заявки</span>
-              <span class="upload-hint">Используется образец `ЗаявкаШколы71_ГТО.xlsx`, уже встроенный в проект</span>
-            </div>
-          </div>
-
-          <div class="actions-row">
-            <button id="analyzeBtn" class="btn btn-primary" type="button">Проанализировать файлы</button>
-          </div>
-        </section>
-
-        <section class="card">
-          <h3>Результат анализа</h3>
-          <div id="analysisSummary" class="stack"></div>
-        </section>
-
-        <section class="card">
-          <h3>Ручное подтверждение колонок</h3>
-          <div id="mappingEditor" class="mapping-grid"></div>
-        </section>
-
-        <section class="card">
-          <h3>Журнал предупреждений</h3>
-          <div id="issuesList" class="issue-list"></div>
-        </section>
-      </section>
-
-      <section id="screen-select" class="screen">
-        <section class="card">
-          <div class="toolbar">
-            <label class="toolbar-field grow">
-              <span>Поиск по ФИО</span>
-              <input id="studentSearchInput" type="search" placeholder="Введите фамилию или имя">
-            </label>
-            <label class="toolbar-field">
-              <span>Фильтр</span>
-              <select id="studentFilterSelect">
-                <option value="all">Все</option>
-                <option value="missingUin">Без УИН</option>
-                <option value="selected">Уже добавленные</option>
-                <option value="unselected">Еще не добавленные</option>
-              </select>
-            </label>
-            <button id="addManualBtn" class="btn btn-secondary" type="button">Добавить вручную</button>
-          </div>
-
-          <div id="classTabs" class="class-tabs"></div>
-          <div id="studentsTableWrap" class="table-wrap"></div>
-        </section>
-
-        <section class="card">
-          <div class="section-head">
-            <div>
-              <h3>Выбранные участники</h3>
-              <p>Список автоматически сортируется по алфавиту.</p>
-            </div>
-            <div id="selectedCountBadge" class="badge">0 участников</div>
-          </div>
-          <div id="selectedList" class="selected-list"></div>
-        </section>
-      </section>
-
-      <section id="screen-review" class="screen">
-        <section class="card">
-          <div class="stats-grid" id="reviewStats"></div>
-        </section>
-
-        <section class="card">
-          <div class="section-head">
-            <div>
-              <h3>Проблемы перед выгрузкой</h3>
-              <p>Нераспознанные поля будут заменены на прочерк и отмечены красным в Excel.</p>
-            </div>
-            <button id="downloadExcelBtn" class="btn btn-primary" type="button">Скачать Excel-заявку</button>
-          </div>
-          <div id="reviewIssues" class="issue-list"></div>
-        </section>
-
-        <section class="card">
-          <h3>Предпросмотр заявки</h3>
-          <div id="reviewTableWrap" class="table-wrap"></div>
-        </section>
-      </section>
-    </main>
-  </div>
-
-  <dialog id="manualDialog" class="dialog">
-    <form method="dialog" id="manualForm" class="dialog-form">
+  <!-- Create session dialog -->
+  <dialog id="createDialog" class="dialog">
+    <form method="dialog" class="dialog-form">
       <div class="dialog-head">
-        <h3>Добавить участника вручную</h3>
-        <button class="icon-btn" value="cancel" type="submit">×</button>
+        <h3>Новая дата проведения ГТО</h3>
+        <button class="icon-btn" value="cancel" type="submit">&times;</button>
       </div>
-      <div class="form-grid">
-        <label><span>ФИО</span><input name="fullName" type="text" required></label>
-        <label><span>Класс или группа</span><input name="className" type="text"></label>
-        <label><span>УИН / WIN</span><input name="uin" type="text"></label>
+      <div class="dialog-body">
         <label>
-          <span>Пол</span>
-          <select name="gender">
-            <option value="">Не указано</option>
-            <option value="мужской">Мужской</option>
-            <option value="женский">Женский</option>
-          </select>
+          <span>Дата проведения ГТО</span>
+          <input id="newEventDate" type="date" required>
         </label>
-        <label><span>Дата рождения</span><input name="birthDate" type="date"></label>
-        <label><span>Номер документа</span><input name="documentNumber" type="text"></label>
-        <label><span>Адрес проживания</span><input name="address" type="text"></label>
-        <label><span>Место учебы</span><input name="schoolName" type="text"></label>
+        <p class="dialog-hint">Вы сможете изменить дату позже в рабочем пространстве.</p>
       </div>
       <div class="dialog-actions">
         <button class="btn btn-secondary" value="cancel" type="submit">Отмена</button>
-        <button id="saveManualBtn" class="btn btn-primary" value="default" type="button">Добавить</button>
+        <button class="btn btn-primary" id="confirmCreateBtn" type="button">Создать</button>
       </div>
     </form>
   </dialog>
 
-  <script src="assets/vendor/xlsx.full.min.js"></script>
-  <script src="assets/vendor/exceljs.min.js"></script>
-  <script src="scripts/core/config.js"></script>
-  <script src="scripts/core/builtin-template.js"></script>
-  <script src="scripts/core/utils.js"></script>
-  <script src="scripts/core/logger.js"></script>
-  <script src="scripts/core/storage.js"></script>
-  <script src="scripts/data/normalizer.js"></script>
-  <script src="scripts/data/calculations.js"></script>
-  <script src="scripts/data/mapper.js"></script>
-  <script src="scripts/excel/excel-reader.js"></script>
-  <script src="scripts/excel/exporter.js"></script>
-  <script src="scripts/core/app-state.js"></script>
-  <script src="scripts/ui/app.js"></script>
+  <!-- Confirm delete dialog -->
+  <dialog id="deleteDialog" class="dialog">
+    <form method="dialog" class="dialog-form">
+      <div class="dialog-head">
+        <h3>Удалить дату?</h3>
+        <button class="icon-btn" value="cancel" type="submit">&times;</button>
+      </div>
+      <div class="dialog-body">
+        <p id="deleteMessage">Все данные этой сессии будут удалены безвозвратно.</p>
+      </div>
+      <div class="dialog-actions">
+        <button class="btn btn-secondary" value="cancel" type="submit">Отмена</button>
+        <button class="btn btn-danger" id="confirmDeleteBtn" type="button">Удалить</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="scripts/core/session-storage.js"></script>
+  <script src="scripts/ui/dashboard.js"></script>
 </body>
 </html>

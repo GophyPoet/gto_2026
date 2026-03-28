@@ -514,7 +514,83 @@
     els.downloadExcelBtn.addEventListener('click', downloadExcel);
   }
 
-  bindMetaInputs();
-  bindActions();
-  render();
+  /* ---- Session bar integration ---- */
+  function initSessionBar() {
+    var sessionBar = document.getElementById('sessionBar');
+    var sessionBarLabel = document.getElementById('sessionBarLabel');
+    var sessionBarSave = document.getElementById('sessionBarSave');
+    var backBtn = document.getElementById('backToDashboard');
+    var sessionId = storage.getSessionId ? storage.getSessionId() : null;
+
+    if (!sessionId || !sessionBar) return;
+
+    sessionBar.style.display = '';
+
+    /* Show session label */
+    if (window.GTOSessions) {
+      window.GTOSessions.getSession(sessionId).then(function (session) {
+        if (session) {
+          sessionBarLabel.textContent = session.label || 'Рабочая сессия';
+        }
+      });
+    }
+
+    /* Flush data before navigating away */
+    if (backBtn) {
+      backBtn.addEventListener('click', function (event) {
+        event.preventDefault();
+        if (storage.flush) {
+          storage.flush().then(function () {
+            window.location.href = 'index.html';
+          });
+        } else {
+          window.location.href = 'index.html';
+        }
+      });
+    }
+
+    /* Autosave indicator */
+    var originalSave = storage.save;
+    if (originalSave && sessionBarSave) {
+      storage.save = function (state) {
+        originalSave.call(storage, state);
+        sessionBarSave.textContent = 'Сохранено';
+        sessionBarSave.classList.add('is-visible');
+        clearTimeout(storage._saveIndicatorTimeout);
+        storage._saveIndicatorTimeout = setTimeout(function () {
+          sessionBarSave.classList.remove('is-visible');
+        }, 2000);
+      };
+    }
+  }
+
+  /* ---- Initialization ---- */
+  async function init() {
+    /* Wait for session storage to load data from IndexedDB (if in session context) */
+    if (storage.initSession) {
+      await storage.initSession();
+      appState.reloadFromStorage();
+
+      /* If this is a brand-new session, pre-populate eventDate from session metadata */
+      var sessionId = storage.getSessionId ? storage.getSessionId() : null;
+      if (sessionId && window.GTOSessions && !appState.getState().meta.eventDate) {
+        var session = await window.GTOSessions.getSession(sessionId);
+        if (session && session.eventDate) {
+          appState.updateMeta({ eventDate: session.eventDate });
+        }
+      }
+    }
+
+    bindMetaInputs();
+    bindActions();
+    initSessionBar();
+    render();
+  }
+
+  /* Flush session data before page unload to avoid data loss */
+  window.addEventListener('beforeunload', function () {
+    if (storage.flush) storage.flush();
+  });
+
+  init();
 })();
