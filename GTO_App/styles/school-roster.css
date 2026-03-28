@@ -252,6 +252,92 @@
   font-size: 15px;
 }
 
+/* ====== Report dialog ====== */
+.dialog-wide {
+  width: min(720px, calc(100vw - 32px));
+}
+.dialog-wide .dialog-body {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.report-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.report-summary-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.report-summary-item .report-badge {
+  min-width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 800;
+}
+.report-cat-added { background: var(--success-soft); color: #0d6e4f; }
+.report-cat-added .report-badge { background: var(--success); color: white; }
+.report-cat-moved { background: #e8f0fe; color: #1a56db; }
+.report-cat-moved .report-badge { background: #1a56db; color: white; }
+.report-cat-updated { background: #fef3cd; color: #856404; }
+.report-cat-updated .report-badge { background: #d4a017; color: white; }
+.report-cat-archived { background: var(--warning-soft); color: #9a3412; }
+.report-cat-archived .report-badge { background: var(--warning); color: white; }
+.report-cat-skipped { background: var(--panel-soft); color: var(--muted); }
+.report-cat-skipped .report-badge { background: var(--muted); color: white; }
+.report-cat-conflicts { background: var(--danger-soft); color: #991b1b; }
+.report-cat-conflicts .report-badge { background: #dc2626; color: white; }
+
+.report-section {
+  margin-bottom: 16px;
+}
+.report-section-title {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  display: inline-block;
+}
+.report-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.report-list li {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.report-list li:last-child {
+  border-bottom: 0;
+}
+.report-name {
+  font-weight: 600;
+  color: var(--text);
+}
+.report-detail {
+  color: var(--muted);
+  font-size: 12px;
+}
+.report-arrow {
+  color: var(--accent);
+  font-weight: 700;
+}
+
 /* ====== Responsive ====== */
 @media (max-width: 900px) {
   .roster-stats { flex-wrap: wrap; }

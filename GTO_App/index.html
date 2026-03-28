@@ -133,6 +133,22 @@
     </form>
   </dialog>
 
+  <!-- Sync/Import report dialog -->
+  <dialog id="reportDialog" class="dialog dialog-wide">
+    <div class="dialog-form">
+      <div class="dialog-head">
+        <h3 id="reportTitle">Отчёт</h3>
+        <button class="icon-btn" id="reportCloseBtn" type="button">&times;</button>
+      </div>
+      <div class="dialog-body" id="reportBody">
+        <!-- Rendered dynamically -->
+      </div>
+      <div class="dialog-actions">
+        <button class="btn btn-primary" id="reportOkBtn" type="button">Понятно</button>
+      </div>
+    </div>
+  </dialog>
+
   <script src="assets/vendor/xlsx.full.min.js"></script>
   <script src="assets/vendor/exceljs.min.js"></script>
   <script src="scripts/core/session-storage.js"></script>

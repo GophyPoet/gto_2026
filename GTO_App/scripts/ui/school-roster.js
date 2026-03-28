@@ -30,6 +30,136 @@
   }
   function $(id) { return document.getElementById(id); }
 
+  /* ---- Report dialog ---- */
+  function showReport(title, report) {
+    var dlg = $('reportDialog');
+    if (!dlg) { alert(title); return; }
+    $('reportTitle').textContent = title;
+
+    var html = '';
+
+    /* Summary badges */
+    html += '<div class="report-summary">';
+    var cats = [
+      { key: 'added', label: 'Добавлено', css: 'added' },
+      { key: 'moved', label: 'Перемещено', css: 'moved' },
+      { key: 'updated', label: 'Обновлено', css: 'updated' },
+      { key: 'archived', label: 'В архив', css: 'archived' },
+      { key: 'skipped', label: 'Без изменений', css: 'skipped' },
+      { key: 'conflicts', label: 'Конфликты', css: 'conflicts' }
+    ];
+    cats.forEach(function (c) {
+      var arr = report[c.key];
+      if (!arr || !arr.length) return;
+      html += '<div class="report-summary-item report-cat-' + c.css + '">';
+      html += '<span class="report-badge">' + arr.length + '</span> ' + c.label;
+      html += '</div>';
+    });
+    html += '</div>';
+
+    /* Detail sections */
+    if (report.added && report.added.length) {
+      html += '<div class="report-section">';
+      html += '<div class="report-section-title report-cat-added">Добавлены новые ученики</div>';
+      html += '<ul class="report-list">';
+      report.added.forEach(function (r) {
+        html += '<li><span class="report-name">' + esc(r.student.fullName) + '</span>';
+        html += '<span class="report-detail">' + esc(r.class || r.student.className || '') + '</span></li>';
+      });
+      html += '</ul></div>';
+    }
+
+    if (report.moved && report.moved.length) {
+      html += '<div class="report-section">';
+      html += '<div class="report-section-title report-cat-moved">Перемещены в другой класс</div>';
+      html += '<ul class="report-list">';
+      report.moved.forEach(function (r) {
+        html += '<li><span class="report-name">' + esc(r.student.fullName) + '</span>';
+        html += '<span class="report-detail">' + esc(r.from) + '</span>';
+        html += '<span class="report-arrow">&rarr;</span>';
+        html += '<span class="report-detail">' + esc(r.to) + '</span></li>';
+      });
+      html += '</ul></div>';
+    }
+
+    if (report.updated && report.updated.length) {
+      html += '<div class="report-section">';
+      html += '<div class="report-section-title report-cat-updated">Обновлены данные</div>';
+      html += '<ul class="report-list">';
+      report.updated.forEach(function (r) {
+        html += '<li><span class="report-name">' + esc(r.student.fullName) + '</span>';
+        html += '<span class="report-detail">' + esc((r.changes || []).join(', ')) + '</span></li>';
+      });
+      html += '</ul></div>';
+    }
+
+    if (report.archived && report.archived.length) {
+      html += '<div class="report-section">';
+      html += '<div class="report-section-title report-cat-archived">Перемещены в архив</div>';
+      html += '<ul class="report-list">';
+      report.archived.forEach(function (r) {
+        html += '<li><span class="report-name">' + esc(r.student.fullName) + '</span>';
+        html += '<span class="report-detail">' + esc(r.student.className || '') + '</span>';
+        html += '<span class="report-detail"> &mdash; ' + esc(r.reason || '') + '</span></li>';
+      });
+      html += '</ul></div>';
+    }
+
+    if (report.conflicts && report.conflicts.length) {
+      html += '<div class="report-section">';
+      html += '<div class="report-section-title report-cat-conflicts">Конфликты (требуют внимания)</div>';
+      html += '<ul class="report-list">';
+      report.conflicts.forEach(function (r) {
+        html += '<li><span class="report-name">' + esc(r.incoming.fullName) + '</span>';
+        html += '<span class="report-detail">' + esc(r.reason) + '</span></li>';
+      });
+      html += '</ul></div>';
+    }
+
+    if (report.skipped && report.skipped.length) {
+      html += '<div class="report-section">';
+      html += '<div class="report-section-title report-cat-skipped">Без изменений: ' + report.skipped.length + ' учен.</div>';
+      html += '</div>';
+    }
+
+    $('reportBody').innerHTML = html;
+
+    /* Bind close */
+    var closeHandler = function () { dlg.close(); };
+    $('reportCloseBtn').onclick = closeHandler;
+    $('reportOkBtn').onclick = closeHandler;
+
+    dlg.showModal();
+  }
+
+  function showImportReport(title, data) {
+    var html = '';
+    html += '<div class="report-summary">';
+    html += '<div class="report-summary-item report-cat-added"><span class="report-badge">' + data.length + '</span> Классов</div>';
+    var total = data.reduce(function (s, c) { return s + c.students.length; }, 0);
+    html += '<div class="report-summary-item report-cat-skipped"><span class="report-badge">' + total + '</span> Учеников</div>';
+    var withUin = data.reduce(function (s, c) { return s + c.students.filter(function (st) { return st.uin; }).length; }, 0);
+    html += '<div class="report-summary-item report-cat-moved"><span class="report-badge">' + withUin + '</span> С УИН</div>';
+    html += '</div>';
+
+    html += '<div class="report-section">';
+    html += '<div class="report-section-title report-cat-added">Загруженные классы</div>';
+    html += '<ul class="report-list">';
+    data.forEach(function (cls) {
+      html += '<li><span class="report-name">' + esc(cls.className) + '</span>';
+      html += '<span class="report-detail">' + cls.students.length + ' учен.</span></li>';
+    });
+    html += '</ul></div>';
+
+    var dlg = $('reportDialog');
+    $('reportTitle').textContent = title;
+    $('reportBody').innerHTML = html;
+    var closeHandler = function () { dlg.close(); };
+    $('reportCloseBtn').onclick = closeHandler;
+    $('reportOkBtn').onclick = closeHandler;
+    dlg.showModal();
+  }
+
   /* ---- Main render ---- */
   async function render() {
     var container = $('schoolRoster');
@@ -416,7 +546,7 @@
       await school.importFullReplace(data);
       selectedClassId = null;
       render();
-      alert('Импорт завершён: ' + data.length + ' классов, ' + totalStudents + ' учеников.');
+      showImportReport('Импорт школы завершён', data);
     } catch (e) {
       alert('Ошибка импорта: ' + (e.message || e));
     }
@@ -434,22 +564,7 @@
       var report = await school.syncFromAsu(incoming);
       selectedClassId = null;
       render();
-
-      var msg = 'Синхронизация завершена:\n';
-      msg += '• Добавлено: ' + report.added.length + '\n';
-      msg += '• Обновлено: ' + report.updated.length + '\n';
-      msg += '• Перемещено: ' + report.moved.length + '\n';
-      msg += '• В архив: ' + report.archived.length + '\n';
-      msg += '• Без изменений: ' + report.skipped.length + '\n';
-      if (report.conflicts.length > 0) {
-        msg += '• Конфликтов: ' + report.conflicts.length + '\n';
-        report.conflicts.forEach(function (c) { msg += '  - ' + c.incoming.fullName + ': ' + c.reason + '\n'; });
-      }
-      if (report.archived.length > 0 && report.archived.length <= 10) {
-        msg += '\nВ архив перемещены:\n';
-        report.archived.forEach(function (a) { msg += '  - ' + a.student.fullName + ' (' + a.student.className + ')\n'; });
-      }
-      alert(msg);
+      showReport('Синхронизация с АСУ РСО завершена', report);
     } catch (e) {
       alert('Ошибка синхронизации: ' + (e.message || e));
     }
