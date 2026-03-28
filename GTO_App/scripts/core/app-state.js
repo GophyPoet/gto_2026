@@ -114,8 +114,8 @@
       const documentSeries = participant.documentSeries || asuRecord.documentSeries || '';
       const documentNumberPart = participant.documentNumberPart || asuRecord.documentNumber || '';
       const documentNumber = participant.documentNumber || (documentSeries && documentNumberPart
-        ? `${documentSeries} №${documentNumberPart}`
-        : documentSeries || (documentNumberPart ? `№${documentNumberPart}` : ''));
+        ? `${documentSeries} ${documentNumberPart}`
+        : documentSeries || documentNumberPart || '');
       const address = participant.address || normalizer.buildAddress(asuRecord);
 
       const row = {
