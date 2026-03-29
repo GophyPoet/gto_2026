@@ -36,7 +36,8 @@
     reviewIssues: document.getElementById('reviewIssues'),
     reviewTableWrap: document.getElementById('reviewTableWrap'),
     downloadExcelBtn: document.getElementById('downloadExcelBtn'),
-    downloadCardsBtn: document.getElementById('downloadCardsBtn')
+    downloadCardsBtn: document.getElementById('downloadCardsBtn'),
+    submissionDateExcelInput: document.getElementById('submissionDateExcelInput')
   };
 
   /* ---- Global school settings (shared with dashboard via localStorage) ---- */
@@ -153,6 +154,9 @@
     const state = appState.getState();
     els.submissionDateInput.value = utils.toInputDate(state.meta.submissionDate);
     els.eventDateInput.value = utils.toInputDate(state.meta.eventDate);
+    if (els.submissionDateExcelInput) {
+      els.submissionDateExcelInput.value = utils.toInputDate(state.meta.submissionDate);
+    }
 
     const report = state.analysis.structureReport;
     if (!report) {
@@ -1159,15 +1163,37 @@
   }
 
   function bindMetaInputs() {
-    [els.submissionDateInput, els.eventDateInput].forEach((element) => {
-      element.addEventListener('change', () => {
+    /* Keep both submission date inputs in sync */
+    function syncSubmissionDate(sourceInput) {
+      var val = sourceInput.value;
+      if (els.submissionDateInput && els.submissionDateInput !== sourceInput) {
+        els.submissionDateInput.value = val;
+      }
+      if (els.submissionDateExcelInput && els.submissionDateExcelInput !== sourceInput) {
+        els.submissionDateExcelInput.value = val;
+      }
+      appState.updateMeta({
+        submissionDate: val,
+        eventDate: els.eventDateInput.value
+      });
+      renderProjectSummary();
+    }
+
+    [els.submissionDateInput, els.submissionDateExcelInput].forEach(function (input) {
+      if (input) {
+        input.addEventListener('change', function () { syncSubmissionDate(input); });
+      }
+    });
+
+    if (els.eventDateInput) {
+      els.eventDateInput.addEventListener('change', function () {
         appState.updateMeta({
           submissionDate: els.submissionDateInput.value,
           eventDate: els.eventDateInput.value
         });
         renderProjectSummary();
       });
-    });
+    }
   }
 
   /** Sync global settings (schoolName, director) into session meta */
