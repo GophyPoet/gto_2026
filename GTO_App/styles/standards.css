@@ -1,0 +1,177 @@
+/* ---- Standards selection step (workspace) ---- */
+.standards-stage-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--color-border, #e2e8f0);
+  align-items: center;
+}
+.standards-stage-nav .class-tab {
+  font-size: 0.8rem;
+  padding: 0.3rem 0.6rem;
+}
+.standards-stage-nav .class-tab small {
+  font-size: 0.7rem;
+}
+.standards-check-mark {
+  color: #22c55e;
+  font-weight: bold;
+  margin-left: 0.2rem;
+}
+.standards-mode-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--color-surface, #f8fafc);
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: 0.5rem;
+}
+.standards-partial {
+  background: #fef9c3;
+  border-radius: 0.25rem;
+}
+.standards-individual-picker {
+  margin-bottom: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  background: var(--color-surface, #f8fafc);
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: 0.5rem;
+}
+.standards-individual-picker-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.standards-individual-person {
+  display: block;
+  padding: 0.2rem 0 0.2rem 0.5rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.standards-individual-person:hover {
+  background: var(--color-hover, #f1f5f9);
+  border-radius: 0.25rem;
+}
+.standards-individual-person input[type="checkbox"] {
+  margin-right: 0.4rem;
+  accent-color: #3b82f6;
+}
+
+.standards-item {
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: 0.5rem;
+  background: var(--color-surface, #f8fafc);
+}
+.standards-hint {
+  font-weight: 400;
+  color: #64748b;
+  font-size: 0.8rem;
+}
+.standards-discipline {
+  display: block;
+  padding: 0.25rem 0 0.25rem 0.5rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.standards-discipline:hover {
+  background: var(--color-hover, #f1f5f9);
+  border-radius: 0.25rem;
+}
+.standards-discipline input[type="checkbox"] {
+  margin-right: 0.5rem;
+  accent-color: #3b82f6;
+}
+.standards-actions {
+  margin-top: 1rem;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.standards-summary {
+  display: flex;
+  gap: 1.5rem;
+  padding: 0.6rem 0.75rem;
+  background: var(--color-surface, #f8fafc);
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: 0.5rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.85rem;
+}
+.standards-warn {
+  color: #dc2626;
+}
+.standards-item-header {
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.standards-toggle-btn {
+  padding: 0.15rem 0.4rem !important;
+  font-size: 0.7rem !important;
+}
+
+/* ---- Standards management (dashboard) ---- */
+.standards-mgmt-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+}
+.standards-mgmt-tabs .class-tab {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.5rem;
+}
+.standards-mgmt-stage {
+  margin-bottom: 1rem;
+}
+.standards-mgmt-item {
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: 0.5rem;
+  padding: 0.6rem;
+  margin-bottom: 0.5rem;
+  background: var(--color-surface, #f8fafc);
+}
+.standards-mgmt-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+  font-size: 0.85rem;
+  margin-bottom: 0.35rem;
+}
+.standards-mgmt-disc {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.2rem 0 0.2rem 0.75rem;
+  font-size: 0.8rem;
+}
+.standards-mgmt-disc:hover {
+  background: var(--color-hover, #f1f5f9);
+  border-radius: 0.25rem;
+}
+.standards-mgmt-disc .btn {
+  padding: 0.1rem 0.35rem;
+  font-size: 0.7rem;
+}
+.standards-mgmt-actions {
+  display: flex;
+  gap: 0.35rem;
+}
+.standards-mgmt-actions .btn {
+  padding: 0.15rem 0.4rem;
+  font-size: 0.7rem;
+}

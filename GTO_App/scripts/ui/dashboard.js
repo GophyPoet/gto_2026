@@ -32,6 +32,10 @@
       link.classList.add('is-active');
       var target = document.getElementById('tab-' + tabId);
       if (target) target.classList.add('is-active');
+      /* Lazy-init standards manager on first tab visit */
+      if (tabId === 'standards' && window.GTOStandardsManager) {
+        window.GTOStandardsManager.render();
+      }
     });
   });
 

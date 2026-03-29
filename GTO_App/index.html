@@ -6,6 +6,7 @@
   <title>ГТО — Центр управления</title>
   <link rel="stylesheet" href="styles/dashboard.css">
   <link rel="stylesheet" href="styles/school-roster.css">
+  <link rel="stylesheet" href="styles/standards.css">
 </head>
 <body>
   <nav class="topnav">
@@ -16,6 +17,7 @@
       </div>
       <div class="topnav-links">
         <a href="#" class="topnav-link is-active" data-tab="dates">Даты проведения</a>
+        <a href="#" class="topnav-link" data-tab="standards">Нормативы ГТО</a>
         <a href="#" class="topnav-link" data-tab="analytics">Аналитика</a>
         <a href="#" class="topnav-link" data-tab="stats">Статистика</a>
       </div>
@@ -69,6 +71,19 @@
 
       <div id="sessionsList" class="sessions-grid">
         <!-- Sessions will be rendered here -->
+      </div>
+    </section>
+
+    <!-- Standards management tab -->
+    <section class="tab-content" id="tab-standards">
+      <div class="section-header">
+        <div>
+          <h2>Управление нормативами ГТО</h2>
+          <p class="section-subtitle">Просмотр и редактирование перечня испытаний по ступеням. Изменения сохраняются локально.</p>
+        </div>
+      </div>
+      <div id="standardsManager">
+        <!-- Rendered by standards-manager.js -->
       </div>
     </section>
 
@@ -153,9 +168,12 @@
   <script src="assets/vendor/exceljs.min.js"></script>
   <script src="scripts/core/session-storage.js"></script>
   <script src="scripts/core/school-storage.js"></script>
+  <script src="scripts/core/gto-standards.js"></script>
+  <script src="scripts/core/standards-storage.js"></script>
   <script src="scripts/data/school-import.js"></script>
   <script src="scripts/data/school-export.js"></script>
   <script src="scripts/ui/school-roster.js"></script>
+  <script src="scripts/ui/standards-manager.js"></script>
   <script src="scripts/ui/dashboard.js"></script>
 </body>
 </html>

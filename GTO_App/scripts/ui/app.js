@@ -33,11 +33,21 @@
     manualDialog: document.getElementById('manualDialog'),
     manualForm: document.getElementById('manualForm'),
     saveManualBtn: document.getElementById('saveManualBtn'),
+    standardsWrap: document.getElementById('standardsWrap'),
     reviewStats: document.getElementById('reviewStats'),
     reviewIssues: document.getElementById('reviewIssues'),
     reviewTableWrap: document.getElementById('reviewTableWrap'),
-    downloadExcelBtn: document.getElementById('downloadExcelBtn')
+    downloadExcelBtn: document.getElementById('downloadExcelBtn'),
+    downloadCardsBtn: document.getElementById('downloadCardsBtn')
   };
+
+  /* Standards selections: read/write through appState for persistence */
+  function getStdSelections() {
+    return appState.getStandardsSelections();
+  }
+  function setStdSelections(sel) {
+    appState.setStandardsSelections(sel);
+  }
 
   let directoryHandle = null;
   let currentClass = '';
@@ -61,6 +71,7 @@
     renderProjectSummary();
     renderPrepare();
     renderSelect();
+    renderStandards();
     renderReview();
     updateButtons();
   }
@@ -253,7 +264,11 @@
       return true;
     });
 
+    /* Count how many in this class are not yet selected */
+    const unselectedInClass = students.filter((s) => !selectedIds.has(s.id));
+
     els.studentsTableWrap.innerHTML = `
+      ${unselectedInClass.length > 0 ? `<div class="standards-actions" style="margin-bottom:0.5rem"><button class="btn btn-secondary" id="addWholeClass" type="button">Добавить весь класс (${unselectedInClass.length})</button></div>` : ''}
       <table>
         <thead><tr><th>ФИО</th><th>Класс</th><th>УИН</th><th>Действие</th></tr></thead>
         <tbody>
@@ -268,6 +283,18 @@
         </tbody>
       </table>
     `;
+
+    /* Bind add-whole-class */
+    const addWholeClassBtn = document.getElementById('addWholeClass');
+    if (addWholeClassBtn) {
+      addWholeClassBtn.addEventListener('click', () => {
+        unselectedInClass.forEach((student) => {
+          appState.addParticipant(student);
+        });
+        render();
+      });
+    }
+
     els.studentsTableWrap.querySelectorAll('[data-add]').forEach((button) => {
       button.addEventListener('click', () => {
         const student = state.analysis.school.allStudents.find((item) => item.id === button.dataset.add);
@@ -358,6 +385,484 @@
     });
   }
 
+  /* ---- Standards selection step ---- */
+  var standardsCurrentStageTab = null;   /* stageNumber of the active tab */
+  var standardsIndividualMode = false;   /* false = stage-wide, true = per-person */
+  var standardsSelectedPids = {};        /* pids selected for individual edit */
+  var standardsStagesCache = null;
+
+  async function loadStandardsStages() {
+    if (window.GTOApp._standardsCacheDirty) {
+      standardsStagesCache = null;
+      window.GTOApp._standardsCacheDirty = false;
+    }
+    if (standardsStagesCache) return standardsStagesCache;
+    if (window.GTOStandards) {
+      await window.GTOStandards.init();
+      standardsStagesCache = await window.GTOStandards.getAllStages();
+    } else {
+      standardsStagesCache = window.GTOApp.defaultStandards || [];
+    }
+    return standardsStagesCache;
+  }
+
+  function resolveParticipantStage(participant, state) {
+    /* Use the stage from buildGeneratedRows or calculate */
+    var stages = state.analysis.template ? state.analysis.template.stages : [];
+    var birthDate = participant.birthDate || '';
+    var ageValue = window.GTOApp.calculations
+      ? window.GTOApp.calculations.calculateAgeOnDate(birthDate, state.meta.eventDate)
+      : null;
+    var stageMeta = participant.stage
+      ? { label: participant.stage }
+      : (window.GTOApp.calculations ? window.GTOApp.calculations.resolveStage(ageValue, stages) : null);
+    return stageMeta ? stageMeta.label : '';
+  }
+
+  function parseStageNumber(stageLabel) {
+    if (!stageLabel) return null;
+    var str = String(stageLabel).trim();
+    /* Extract the part before parenthesis (stage name) */
+    var beforeParen = str.split('(')[0].trim().toUpperCase();
+    /* Try Roman numeral first (labels from template are like "I", "V", "XVIII") */
+    var romanMap = {
+      'XVIII': 18, 'XVII': 17, 'XVI': 16, 'XV': 15, 'XIV': 14,
+      'XIII': 13, 'XII': 12, 'XI': 11, 'X': 10, 'IX': 9, 'VIII': 8,
+      'VII': 7, 'VI': 6, 'V': 5, 'IV': 4, 'III': 3, 'II': 2, 'I': 1
+    };
+    /* Match if beforeParen IS a Roman numeral (possibly with "ступень" suffix) */
+    var romanPart = beforeParen.replace(/\s*СТУПЕНЬ\s*/, '').trim();
+    if (romanMap[romanPart] !== undefined) return romanMap[romanPart];
+    /* Try Arabic number in the beforeParen part */
+    var m = beforeParen.match(/(\d+)/);
+    if (m) return parseInt(m[1], 10);
+    /* Fallback: check anywhere in the label for Roman */
+    var keys = Object.keys(romanMap);
+    for (var i = 0; i < keys.length; i++) {
+      if (beforeParen === keys[i]) return romanMap[keys[i]];
+    }
+    return null;
+  }
+
+  async function renderStandards() {
+    if (!els.standardsWrap) return;
+    var state = appState.getState();
+    if (!state.selectedParticipants.length) {
+      els.standardsWrap.innerHTML = '<div class="empty-state">Сначала выберите участников на предыдущем шаге.</div>';
+      return;
+    }
+
+    var allStages = await loadStandardsStages();
+    var participants = state.selectedParticipants;
+    var sel = getStdSelections();
+
+    /* ---- Group participants by stage ---- */
+    var stageGroups = {};  /* stageNumber → { stageData, participants[], label } */
+    var noStageParticipants = [];
+    participants.forEach(function (p) {
+      var label = resolveParticipantStage(p, state);
+      var num = parseStageNumber(label);
+      if (!num) { noStageParticipants.push(p); return; }
+      if (!stageGroups[num]) {
+        var sd = allStages.find(function (s) { return s.stageNumber === num; });
+        stageGroups[num] = { stageData: sd, participants: [], label: label, stageNumber: num };
+      }
+      stageGroups[num].participants.push(p);
+    });
+    var stageKeys = Object.keys(stageGroups).map(Number).sort(function (a, b) { return a - b; });
+
+    /* Pick active tab */
+    if (!standardsCurrentStageTab || !stageGroups[standardsCurrentStageTab]) {
+      standardsCurrentStageTab = stageKeys.length ? stageKeys[0] : null;
+    }
+
+    /* ---- Auto-initialize defaults for participants without selections ---- */
+    var dirty = false;
+    participants.forEach(function (p) {
+      if (sel[p.id]) return;
+      var pStage = parseStageNumber(resolveParticipantStage(p, state));
+      var pData = pStage ? allStages.find(function (s) { return s.stageNumber === pStage; }) : null;
+      if (!pData) return;
+      var defs = [];
+      pData.items.forEach(function (item) {
+        if (item.disciplines.length === 1) defs.push(item.disciplines[0]);
+      });
+      sel[p.id] = defs;
+      dirty = true;
+    });
+    if (dirty) setStdSelections(sel);
+
+    /* ---- Summary bar ---- */
+    var withSel = 0;
+    var withoutSel = 0;
+    participants.forEach(function (p) {
+      if (sel[p.id] && sel[p.id].length > 0) withSel++;
+      else withoutSel++;
+    });
+    var summaryHtml = '<div class="standards-summary">' +
+      '<span>Участников: <strong>' + participants.length + '</strong></span>' +
+      '<span>С выбранными испытаниями: <strong>' + withSel + '</strong></span>' +
+      (withoutSel > 0 ? '<span class="standards-warn">Без испытаний: <strong>' + withoutSel + '</strong></span>' : '') +
+      '</div>';
+
+    /* ---- Stage tabs ---- */
+    var navHtml = '<div class="standards-stage-nav">';
+    stageKeys.forEach(function (num) {
+      var g = stageGroups[num];
+      var allOk = g.participants.every(function (p) { return sel[p.id] && sel[p.id].length > 0; });
+      navHtml += '<button class="class-tab' + (num === standardsCurrentStageTab ? ' is-active' : '') + '" data-stage-tab="' + num + '" type="button">' +
+        num + ' ступень <small>(' + g.participants.length + ' чел.)</small>' +
+        (allOk ? ' <span class="standards-check-mark">&#10003;</span>' : '') +
+        '</button>';
+    });
+    if (noStageParticipants.length) {
+      navHtml += '<span class="standards-warn" style="align-self:center;font-size:0.8rem;margin-left:0.5rem">' +
+        noStageParticipants.length + ' без ступени</span>';
+    }
+    navHtml += '</div>';
+
+    /* ---- Body for active stage ---- */
+    var bodyHtml = '';
+    var activeGroup = stageGroups[standardsCurrentStageTab];
+
+    if (!activeGroup || !activeGroup.stageData) {
+      bodyHtml = '<div class="empty-state">Нет данных нормативов для выбранной ступени.</div>';
+    } else {
+      var sd = activeGroup.stageData;
+      var sNum = activeGroup.stageNumber;
+      var groupPids = activeGroup.participants.map(function (p) { return p.id; });
+
+      /* Compute "stage-level" checked state: a discipline is checked at stage level
+         if ALL participants of this stage have it selected */
+      function isStageChecked(disc) {
+        return groupPids.every(function (pid) {
+          return sel[pid] && sel[pid].indexOf(disc) >= 0;
+        });
+      }
+      function isStagePartial(disc) {
+        var count = 0;
+        groupPids.forEach(function (pid) {
+          if (sel[pid] && sel[pid].indexOf(disc) >= 0) count++;
+        });
+        return count > 0 && count < groupPids.length;
+      }
+
+      /* ---- Mode toggle ---- */
+      var modeHtml = '<div class="standards-mode-bar">' +
+        '<button class="btn btn-sm' + (!standardsIndividualMode ? ' btn-primary' : ' btn-ghost') + '" id="stdModeStage" type="button">По ступени (для всех)</button>' +
+        '<button class="btn btn-sm' + (standardsIndividualMode ? ' btn-primary' : ' btn-ghost') + '" id="stdModeIndividual" type="button">Индивидуально</button>' +
+        '<span class="standards-hint" style="margin-left:auto">' + activeGroup.participants.length + ' участн. · ' + escapeHtml(sd.ageRange || '') + '</span>' +
+        '</div>';
+
+      if (!standardsIndividualMode) {
+        /* ========= STAGE-WIDE MODE ========= */
+        var itemsHtml = '<h4>' + sNum + ' ступень (' + escapeHtml(sd.ageRange || '') + ')</h4>';
+        sd.items.forEach(function (item) {
+          var allChecked = item.disciplines.every(isStageChecked);
+          itemsHtml += '<div class="standards-item">';
+          itemsHtml += '<div class="standards-item-header"><span>Пункт ' + item.itemNumber;
+          if (item.hint) itemsHtml += ' <span class="standards-hint">(' + escapeHtml(item.hint) + ')</span>';
+          if (item.disciplines.length > 1) itemsHtml += ' <span class="standards-hint">(выберите из списка)</span>';
+          itemsHtml += '</span>';
+          if (item.disciplines.length > 1) {
+            itemsHtml += '<button class="btn btn-ghost standards-toggle-btn" data-toggle-item="' + item.itemNumber + '" type="button">' + (allChecked ? 'Снять все' : 'Выбрать все') + '</button>';
+          }
+          itemsHtml += '</div>';
+          item.disciplines.forEach(function (disc) {
+            var checked = isStageChecked(disc);
+            var partial = !checked && isStagePartial(disc);
+            itemsHtml += '<label class="standards-discipline' + (partial ? ' standards-partial' : '') + '">' +
+              '<input type="checkbox" data-stage-disc="' + escapeHtml(disc) + '" data-item="' + item.itemNumber + '"' + (checked ? ' checked' : '') + '> ' +
+              escapeHtml(disc) +
+              (partial ? ' <span class="standards-hint">(не у всех)</span>' : '') +
+              '</label>';
+          });
+          itemsHtml += '</div>';
+        });
+
+        /* Actions */
+        var actionsHtml = '<div class="standards-actions">' +
+          '<button class="btn btn-ghost" id="standardsSelectAllItems" type="button">Выбрать все</button>' +
+          '<button class="btn btn-ghost" id="standardsClearAll" type="button">Снять все</button>' +
+          '</div>';
+
+        bodyHtml = modeHtml + '<div class="card">' + itemsHtml + actionsHtml + '</div>';
+      } else {
+        /* ========= INDIVIDUAL MODE ========= */
+        /* Participant selector (multi-select checkboxes) */
+        var pickHtml = '<div class="standards-individual-picker">' +
+          '<div class="standards-individual-picker-header">' +
+          '<span>Выберите участников для настройки:</span>' +
+          '<button class="btn btn-ghost btn-sm" id="stdPickAll" type="button">Все</button>' +
+          '<button class="btn btn-ghost btn-sm" id="stdPickNone" type="button">Никого</button>' +
+          '</div>';
+        activeGroup.participants.forEach(function (p) {
+          var picked = !!standardsSelectedPids[p.id];
+          var hasS = sel[p.id] && sel[p.id].length > 0;
+          pickHtml += '<label class="standards-individual-person">' +
+            '<input type="checkbox" data-pick-pid="' + p.id + '"' + (picked ? ' checked' : '') + '> ' +
+            escapeHtml(p.fullName) +
+            (hasS ? ' <span class="standards-check-mark">&#10003;</span>' : '') +
+            '</label>';
+        });
+        pickHtml += '</div>';
+
+        /* Build selected pids list for this stage */
+        var editPids = [];
+        activeGroup.participants.forEach(function (p) {
+          if (standardsSelectedPids[p.id]) editPids.push(p.id);
+        });
+
+        var itemsHtml = '';
+        if (editPids.length === 0) {
+          itemsHtml = '<div class="empty-state" style="padding:1rem">Отметьте участников выше для индивидуальной настройки.</div>';
+        } else {
+          var editNames = editPids.map(function (pid) {
+            var pp = activeGroup.participants.find(function (p) { return p.id === pid; });
+            return pp ? pp.fullName.split(' ').slice(0, 2).join(' ') : pid;
+          });
+          itemsHtml += '<h4>Настройка для: ' + escapeHtml(editNames.join(', ')) + '</h4>';
+
+          /* For individual: checked = ALL selected pids have the disc */
+          function isIndivChecked(disc) {
+            return editPids.every(function (pid) { return sel[pid] && sel[pid].indexOf(disc) >= 0; });
+          }
+          function isIndivPartial(disc) {
+            var c = 0;
+            editPids.forEach(function (pid) { if (sel[pid] && sel[pid].indexOf(disc) >= 0) c++; });
+            return c > 0 && c < editPids.length;
+          }
+
+          sd.items.forEach(function (item) {
+            var allChecked = item.disciplines.every(isIndivChecked);
+            itemsHtml += '<div class="standards-item">';
+            itemsHtml += '<div class="standards-item-header"><span>Пункт ' + item.itemNumber;
+            if (item.hint) itemsHtml += ' <span class="standards-hint">(' + escapeHtml(item.hint) + ')</span>';
+            if (item.disciplines.length > 1) itemsHtml += ' <span class="standards-hint">(выберите из списка)</span>';
+            itemsHtml += '</span>';
+            if (item.disciplines.length > 1) {
+              itemsHtml += '<button class="btn btn-ghost standards-toggle-btn" data-indiv-toggle="' + item.itemNumber + '" type="button">' + (allChecked ? 'Снять все' : 'Выбрать все') + '</button>';
+            }
+            itemsHtml += '</div>';
+            item.disciplines.forEach(function (disc) {
+              var checked = isIndivChecked(disc);
+              var partial = !checked && isIndivPartial(disc);
+              itemsHtml += '<label class="standards-discipline' + (partial ? ' standards-partial' : '') + '">' +
+                '<input type="checkbox" data-indiv-disc="' + escapeHtml(disc) + '" data-item="' + item.itemNumber + '"' + (checked ? ' checked' : '') + '> ' +
+                escapeHtml(disc) +
+                (partial ? ' <span class="standards-hint">(не у всех)</span>' : '') +
+                '</label>';
+            });
+            itemsHtml += '</div>';
+          });
+        }
+
+        var actionsHtml = editPids.length ? '<div class="standards-actions">' +
+          '<button class="btn btn-ghost" id="standardsIndivSelectAll" type="button">Выбрать все</button>' +
+          '<button class="btn btn-ghost" id="standardsIndivClearAll" type="button">Снять все</button>' +
+          '</div>' : '';
+
+        bodyHtml = modeHtml + pickHtml + '<div class="card">' + itemsHtml + actionsHtml + '</div>';
+      }
+    }
+
+    /* ---- Warning for participants without stage ---- */
+    var noStageHtml = '';
+    if (noStageParticipants.length) {
+      noStageHtml = '<div class="standards-item" style="border-color:#fbbf24;margin-top:0.75rem">' +
+        '<div class="standards-item-header"><span class="standards-warn">Участники без определённой ступени:</span></div>';
+      noStageParticipants.forEach(function (p) {
+        noStageHtml += '<div style="padding:0.15rem 0.5rem;font-size:0.85rem">' + escapeHtml(p.fullName) + ' — проверьте дату рождения</div>';
+      });
+      noStageHtml += '</div>';
+    }
+
+    els.standardsWrap.innerHTML = summaryHtml + navHtml + bodyHtml + noStageHtml;
+
+    /* ======== EVENT BINDINGS ======== */
+
+    /* Stage tab clicks */
+    els.standardsWrap.querySelectorAll('[data-stage-tab]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        standardsCurrentStageTab = parseInt(btn.dataset.stageTab, 10);
+        standardsIndividualMode = false;
+        standardsSelectedPids = {};
+        renderStandards();
+      });
+    });
+
+    /* Mode toggle */
+    var modeStageBtn = document.getElementById('stdModeStage');
+    var modeIndivBtn = document.getElementById('stdModeIndividual');
+    if (modeStageBtn) modeStageBtn.addEventListener('click', function () {
+      standardsIndividualMode = false;
+      renderStandards();
+    });
+    if (modeIndivBtn) modeIndivBtn.addEventListener('click', function () {
+      standardsIndividualMode = true;
+      renderStandards();
+    });
+
+    if (!standardsIndividualMode && activeGroup && activeGroup.stageData) {
+      /* ---- Stage-wide checkbox changes ---- */
+      els.standardsWrap.querySelectorAll('input[type="checkbox"][data-stage-disc]').forEach(function (cb) {
+        cb.addEventListener('change', function () {
+          var disc = cb.dataset.disc || cb.getAttribute('data-stage-disc');
+          var s = getStdSelections();
+          activeGroup.participants.forEach(function (p) {
+            if (!s[p.id]) s[p.id] = [];
+            if (cb.checked) {
+              if (s[p.id].indexOf(disc) < 0) s[p.id].push(disc);
+            } else {
+              s[p.id] = s[p.id].filter(function (d) { return d !== disc; });
+            }
+          });
+          setStdSelections(s);
+          /* Update summary without full re-render for speed */
+          renderStandards();
+        });
+      });
+
+      /* Toggle-all per item (stage mode) */
+      els.standardsWrap.querySelectorAll('[data-toggle-item]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var itemNum = parseInt(btn.dataset.toggleItem, 10);
+          var item = activeGroup.stageData.items.find(function (it) { return it.itemNumber === itemNum; });
+          if (!item) return;
+          var s = getStdSelections();
+          var allIn = item.disciplines.every(function (d) {
+            return activeGroup.participants.every(function (p) { return s[p.id] && s[p.id].indexOf(d) >= 0; });
+          });
+          activeGroup.participants.forEach(function (p) {
+            if (!s[p.id]) s[p.id] = [];
+            if (allIn) {
+              var removeSet = new Set(item.disciplines);
+              s[p.id] = s[p.id].filter(function (d) { return !removeSet.has(d); });
+            } else {
+              item.disciplines.forEach(function (d) {
+                if (s[p.id].indexOf(d) < 0) s[p.id].push(d);
+              });
+            }
+          });
+          setStdSelections(s);
+          renderStandards();
+        });
+      });
+
+      /* Select-all / Clear-all (stage mode) */
+      var selectAllBtn = document.getElementById('standardsSelectAllItems');
+      if (selectAllBtn) selectAllBtn.addEventListener('click', function () {
+        var s = getStdSelections();
+        var allDiscs = [];
+        activeGroup.stageData.items.forEach(function (item) {
+          item.disciplines.forEach(function (d) { allDiscs.push(d); });
+        });
+        activeGroup.participants.forEach(function (p) { s[p.id] = allDiscs.slice(); });
+        setStdSelections(s);
+        renderStandards();
+      });
+      var clearAllBtn = document.getElementById('standardsClearAll');
+      if (clearAllBtn) clearAllBtn.addEventListener('click', function () {
+        var s = getStdSelections();
+        activeGroup.participants.forEach(function (p) { s[p.id] = []; });
+        setStdSelections(s);
+        renderStandards();
+      });
+
+    } else if (standardsIndividualMode && activeGroup && activeGroup.stageData) {
+      /* ---- Individual mode bindings ---- */
+
+      /* Participant picker */
+      els.standardsWrap.querySelectorAll('input[data-pick-pid]').forEach(function (cb) {
+        cb.addEventListener('change', function () {
+          var pid = cb.getAttribute('data-pick-pid');
+          if (cb.checked) standardsSelectedPids[pid] = true;
+          else delete standardsSelectedPids[pid];
+          renderStandards();
+        });
+      });
+      var pickAllBtn = document.getElementById('stdPickAll');
+      if (pickAllBtn) pickAllBtn.addEventListener('click', function () {
+        activeGroup.participants.forEach(function (p) { standardsSelectedPids[p.id] = true; });
+        renderStandards();
+      });
+      var pickNoneBtn = document.getElementById('stdPickNone');
+      if (pickNoneBtn) pickNoneBtn.addEventListener('click', function () {
+        standardsSelectedPids = {};
+        renderStandards();
+      });
+
+      /* Individual discipline checkboxes */
+      var editPids = [];
+      activeGroup.participants.forEach(function (p) {
+        if (standardsSelectedPids[p.id]) editPids.push(p.id);
+      });
+
+      els.standardsWrap.querySelectorAll('input[type="checkbox"][data-indiv-disc]').forEach(function (cb) {
+        cb.addEventListener('change', function () {
+          var disc = cb.getAttribute('data-indiv-disc');
+          var s = getStdSelections();
+          editPids.forEach(function (pid) {
+            if (!s[pid]) s[pid] = [];
+            if (cb.checked) {
+              if (s[pid].indexOf(disc) < 0) s[pid].push(disc);
+            } else {
+              s[pid] = s[pid].filter(function (d) { return d !== disc; });
+            }
+          });
+          setStdSelections(s);
+          renderStandards();
+        });
+      });
+
+      /* Toggle-all per item (individual mode) */
+      els.standardsWrap.querySelectorAll('[data-indiv-toggle]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var itemNum = parseInt(btn.getAttribute('data-indiv-toggle'), 10);
+          var item = activeGroup.stageData.items.find(function (it) { return it.itemNumber === itemNum; });
+          if (!item) return;
+          var s = getStdSelections();
+          var allIn = item.disciplines.every(function (d) {
+            return editPids.every(function (pid) { return s[pid] && s[pid].indexOf(d) >= 0; });
+          });
+          editPids.forEach(function (pid) {
+            if (!s[pid]) s[pid] = [];
+            if (allIn) {
+              var removeSet = new Set(item.disciplines);
+              s[pid] = s[pid].filter(function (d) { return !removeSet.has(d); });
+            } else {
+              item.disciplines.forEach(function (d) {
+                if (s[pid].indexOf(d) < 0) s[pid].push(d);
+              });
+            }
+          });
+          setStdSelections(s);
+          renderStandards();
+        });
+      });
+
+      /* Select-all / Clear-all (individual mode) */
+      var indivSelectAll = document.getElementById('standardsIndivSelectAll');
+      if (indivSelectAll) indivSelectAll.addEventListener('click', function () {
+        var s = getStdSelections();
+        var allDiscs = [];
+        activeGroup.stageData.items.forEach(function (item) {
+          item.disciplines.forEach(function (d) { allDiscs.push(d); });
+        });
+        editPids.forEach(function (pid) { s[pid] = allDiscs.slice(); });
+        setStdSelections(s);
+        renderStandards();
+      });
+      var indivClearAll = document.getElementById('standardsIndivClearAll');
+      if (indivClearAll) indivClearAll.addEventListener('click', function () {
+        var s = getStdSelections();
+        editPids.forEach(function (pid) { s[pid] = []; });
+        setStdSelections(s);
+        renderStandards();
+      });
+    }
+  }
+
   function renderReview() {
     const state = appState.getState();
     if (!state.analysis.school || !state.analysis.school.allStudents || !state.analysis.school.allStudents.length) {
@@ -370,13 +875,30 @@
     const rows = appState.buildGeneratedRows();
     const problemsCount = rows.reduce((sum, row) => sum + row.issues.length, 0);
     const missingRows = rows.filter((row) => row.issues.length).length;
+
+    /* Standards selections summary */
+    const stdSel = getStdSelections();
+    const withStandards = state.selectedParticipants.filter((p) => stdSel[p.id] && stdSel[p.id].length > 0).length;
+    const withoutStandards = state.selectedParticipants.length - withStandards;
+
     els.reviewStats.innerHTML = `
       <div class="stat-card"><strong>Строк в выгрузке</strong><div>${rows.length}</div></div>
       <div class="stat-card"><strong>Записей с проверкой</strong><div>${missingRows}</div></div>
       <div class="stat-card"><strong>Всего проблемных полей</strong><div>${problemsCount}</div></div>
       <div class="stat-card"><strong>Дата ГТО</strong><div>${escapeHtml(state.meta.eventDate || 'Не указана')}</div></div>
+      <div class="stat-card"><strong>С нормативами</strong><div>${withStandards} из ${state.selectedParticipants.length}</div></div>
     `;
-    renderIssues(els.reviewIssues, state.analysis.issues, 'Все поля заполнены. Можно скачивать Excel.');
+
+    /* Add warnings for participants without standards */
+    const allIssues = state.analysis.issues.slice();
+    if (withoutStandards > 0) {
+      state.selectedParticipants.forEach((p) => {
+        if (!stdSel[p.id] || stdSel[p.id].length === 0) {
+          allIssues.push({ severity: 'warning', title: 'Нет выбранных испытаний', message: p.fullName + ': не выбраны нормативы ГТО (карточка будет пустой)' });
+        }
+      });
+    }
+    renderIssues(els.reviewIssues, allIssues, 'Все поля заполнены. Можно скачивать Excel и карточки.');
 
     els.reviewTableWrap.innerHTML = rows.length ? `
       <table>
@@ -417,6 +939,7 @@
     const state = appState.getState();
     if (stepId === 'prepare') return true;
     if (stepId === 'select') return Boolean(state.analysis.school && state.analysis.school.allStudents && state.analysis.school.allStudents.length > 0);
+    if (stepId === 'standards') return Boolean(state.selectedParticipants.length);
     if (stepId === 'review') return Boolean(state.selectedParticipants.length);
     return false;
   }
@@ -429,6 +952,7 @@
     const nextStep = config.steps[nextIndex];
     if (!canOpenStep(nextStep.id)) {
       if (nextStep.id === 'select') alert('Сначала загрузите и проанализируйте два файла.');
+      if (nextStep.id === 'standards') alert('Сначала выберите хотя бы одного участника.');
       if (nextStep.id === 'review') alert('Сначала выберите хотя бы одного участника.');
       return;
     }
@@ -603,6 +1127,39 @@
       render();
     });
     els.downloadExcelBtn.addEventListener('click', downloadExcel);
+    if (els.downloadCardsBtn) {
+      els.downloadCardsBtn.addEventListener('click', downloadCards);
+    }
+  }
+
+  async function downloadCards() {
+    try {
+      var state = appState.getState();
+      if (!state.selectedParticipants.length) {
+        alert('Нет выбранных участников.');
+        return;
+      }
+      var cardGen = window.GTOApp.cardGenerator;
+      if (!cardGen) {
+        alert('Модуль генерации карточек не загружен.');
+        return;
+      }
+      els.downloadCardsBtn.disabled = true;
+      els.downloadCardsBtn.textContent = 'Генерация…';
+      await cardGen.generateCards(
+        state.selectedParticipants,
+        getStdSelections(),
+        { schoolName: state.meta.schoolName || '' }
+      );
+    } catch (error) {
+      logger.error(error);
+      alert(error.message || 'Не удалось сгенерировать карточки.');
+    } finally {
+      if (els.downloadCardsBtn) {
+        els.downloadCardsBtn.disabled = false;
+        els.downloadCardsBtn.textContent = 'Скачать карточки (ZIP)';
+      }
+    }
   }
 
   /* ---- Load data from school roster (IndexedDB) ---- */
