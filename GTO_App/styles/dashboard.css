@@ -206,6 +206,46 @@ html, body {
   display: block;
 }
 
+/* ====== Global settings bar ====== */
+.global-settings-bar {
+  margin-bottom: 32px;
+  padding: 20px 28px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+}
+.global-settings-inner {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+.global-settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.global-settings-field span {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.global-settings-field input {
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 15px;
+  font-family: var(--font-main);
+  background: var(--bg);
+  transition: border-color 0.2s;
+}
+.global-settings-field input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 /* ====== Section header ====== */
 .section-header {
   display: flex;
@@ -495,6 +535,7 @@ html, body {
   .hero-visual { display: none; }
   .sessions-grid { grid-template-columns: 1fr; }
   .section-header { flex-direction: column; }
+  .global-settings-inner { grid-template-columns: 1fr; }
 }
 @media (max-width: 600px) {
   .dashboard { padding: 16px; }

@@ -9,8 +9,6 @@
     prevStepBtn: document.getElementById('prevStepBtn'),
     nextStepBtn: document.getElementById('nextStepBtn'),
     projectSummary: document.getElementById('projectSummary'),
-    schoolNameInput: document.getElementById('schoolNameInput'),
-    directorInput: document.getElementById('directorInput'),
     submissionDateInput: document.getElementById('submissionDateInput'),
     eventDateInput: document.getElementById('eventDateInput'),
     schoolFileInput: document.getElementById('schoolFileInput'),
@@ -40,6 +38,13 @@
     downloadExcelBtn: document.getElementById('downloadExcelBtn'),
     downloadCardsBtn: document.getElementById('downloadCardsBtn')
   };
+
+  /* ---- Global school settings (shared with dashboard via localStorage) ---- */
+  var GLOBAL_SETTINGS_KEY = 'gto-global-settings';
+  function loadGlobalSettings() {
+    try { return JSON.parse(localStorage.getItem(GLOBAL_SETTINGS_KEY)) || {}; }
+    catch (e) { return {}; }
+  }
 
   /* Standards selections: read/write through appState for persistence */
   function getStdSelections() {
@@ -146,8 +151,6 @@
 
   function renderPrepare() {
     const state = appState.getState();
-    els.schoolNameInput.value = state.meta.schoolName || '';
-    els.directorInput.value = state.meta.director || '';
     els.submissionDateInput.value = utils.toInputDate(state.meta.submissionDate);
     els.eventDateInput.value = utils.toInputDate(state.meta.eventDate);
 
@@ -1156,17 +1159,28 @@
   }
 
   function bindMetaInputs() {
-    [els.schoolNameInput, els.directorInput, els.submissionDateInput, els.eventDateInput].forEach((element) => {
+    [els.submissionDateInput, els.eventDateInput].forEach((element) => {
       element.addEventListener('change', () => {
         appState.updateMeta({
-          schoolName: els.schoolNameInput.value.trim(),
-          director: els.directorInput.value.trim(),
           submissionDate: els.submissionDateInput.value,
           eventDate: els.eventDateInput.value
         });
         renderProjectSummary();
       });
     });
+  }
+
+  /** Sync global settings (schoolName, director) into session meta */
+  function syncGlobalSettingsToMeta() {
+    var g = loadGlobalSettings();
+    var meta = appState.getState().meta;
+    if ((g.schoolName && g.schoolName !== meta.schoolName) ||
+        (g.director && g.director !== meta.director)) {
+      appState.updateMeta({
+        schoolName: g.schoolName || meta.schoolName || '',
+        director: g.director || meta.director || ''
+      });
+    }
   }
 
   function updateUploadCardLabel(input) {
@@ -1450,6 +1464,9 @@
         appState.setCurrentStep('select');
       }
     }
+
+    /* Sync global school settings (schoolName, director) from dashboard into session meta */
+    syncGlobalSettingsToMeta();
 
     bindMetaInputs();
     bindActions();
