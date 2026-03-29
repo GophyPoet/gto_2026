@@ -177,37 +177,37 @@
   function renderCard(doc, participant, selectedTests, meta) {
     var rows = buildCardRows(participant, selectedTests, meta);
 
-    /* Font sizes */
-    var titleSize = 14;
-    var subtitleSize = 9;
-    var headerSize = 10;
-    var bodySize = 9;
+    /* Font sizes (proportional: body 12pt base) */
+    var titleSize = 18;
+    var subtitleSize = 12;
+    var headerSize = 13;
+    var bodySize = 12;
     var lineH = bodySize * 0.42; // mm per line of text
 
     /* ---- Title ---- */
     var y = MARGIN_TOP;
     doc.setFont('LiberationSerif', 'bold');
     doc.setFontSize(titleSize);
-    doc.text('ЗАЯВКА', PAGE_W / 2, y + 5, { align: 'center' });
-    y += 8;
+    doc.text('ЗАЯВКА', PAGE_W / 2, y + 7, { align: 'center' });
+    y += 11;
 
     doc.setFont('LiberationSerif', 'normal');
     doc.setFontSize(subtitleSize);
-    doc.text('на прохождение тестирования в рамках Всероссийского физкультурно-спортивного комплекса', PAGE_W / 2, y + 4, { align: 'center' });
-    y += 5;
-    doc.text('«Готов к труду и обороне» (ГТО)', PAGE_W / 2, y + 4, { align: 'center' });
-    y += 8;
+    doc.text('на прохождение тестирования в рамках Всероссийского физкультурно-спортивного комплекса', PAGE_W / 2, y + 5, { align: 'center' });
+    y += 7;
+    doc.text('«Готов к труду и обороне» (ГТО)', PAGE_W / 2, y + 5, { align: 'center' });
+    y += 10;
 
     /* ---- Table header row ---- */
     var x0 = MARGIN_LEFT;
-    var headerH = 7;
+    var headerH = 9;
     drawCell(doc, x0, y, COL_NUM_W, headerH, '№', headerSize, true, 'center');
     drawCell(doc, x0 + COL_NUM_W, y, COL_LABEL_W, headerH, 'Наименование', headerSize, true, 'center');
     drawCell(doc, x0 + COL_NUM_W + COL_LABEL_W, y, COL_VALUE_W, headerH, 'Информация', headerSize, true, 'center');
     y += headerH;
 
     /* ---- Data rows ---- */
-    var padding = 2; // vertical padding in cell
+    var padding = 2.5; // vertical padding in cell
     for (var r = 0; r < rows.length; r++) {
       var row = rows[r];
 
@@ -215,7 +215,7 @@
       var labelLines = wrapText(doc, row.label, COL_LABEL_W - 3, bodySize);
       var valueLines = wrapText(doc, row.value, COL_VALUE_W - 3, bodySize);
       var maxLines = Math.max(labelLines.length, valueLines.length, 1);
-      var rowH = Math.max(maxLines * lineH + padding * 2, 6);
+      var rowH = Math.max(maxLines * lineH + padding * 2, 8);
 
       /* Draw cells */
       /* Number cell */
