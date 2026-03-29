@@ -97,10 +97,6 @@
     }
     if (!address) address = placeholder;
 
-    var submissionDate = meta.submissionDate
-      ? utils.formatDate(meta.submissionDate)
-      : placeholder;
-
     return [
       { num: '1', label: 'Фамилия, Имя, Отчество', value: participant.fullName || placeholder },
       { num: '2', label: 'Пол', value: participant.gender || placeholder },
@@ -114,8 +110,7 @@
       { num: '10', label: 'Спортивное звание', value: placeholder },
       { num: '11', label: 'Почетное спортивное звание', value: placeholder },
       { num: '12', label: 'Спортивный разряд с указанием вида спорта', value: placeholder },
-      { num: '13', label: 'Перечень выбранных испытаний', value: formatTestsList(selectedTests) },
-      { num: '14', label: 'Дата представления документов', value: submissionDate }
+      { num: '13', label: 'Перечень выбранных испытаний', value: formatTestsList(selectedTests) }
     ];
   }
 
@@ -250,15 +245,6 @@
       }
 
       y += rowH;
-    }
-
-    /* ---- Signature section ---- */
-    y += 10;
-    if (y < 260) { // only if there's space
-      doc.setFont('LiberationSerif', 'normal');
-      doc.setFontSize(9);
-      doc.text('Подпись участника: ___________________', MARGIN_LEFT, y);
-      doc.text('Дата: ___________________', MARGIN_LEFT + 110, y);
     }
 
     return doc;
