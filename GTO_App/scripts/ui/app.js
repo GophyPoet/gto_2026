@@ -386,7 +386,9 @@
   }
 
   /* ---- Standards selection step ---- */
-  var standardsCurrentParticipantIdx = 0;
+  var standardsCurrentStageTab = null;   /* stageNumber of the active tab */
+  var standardsIndividualMode = false;   /* false = stage-wide, true = per-person */
+  var standardsSelectedPids = {};        /* pids selected for individual edit */
   var standardsStagesCache = null;
 
   async function loadStandardsStages() {
@@ -454,14 +456,27 @@
     var participants = state.selectedParticipants;
     var sel = getStdSelections();
 
-    /* Ensure index is valid */
-    if (standardsCurrentParticipantIdx >= participants.length) standardsCurrentParticipantIdx = 0;
-    var current = participants[standardsCurrentParticipantIdx];
-    var stageLabel = resolveParticipantStage(current, state);
-    var stageNum = parseStageNumber(stageLabel);
-    var stageData = stageNum ? allStages.find(function (s) { return s.stageNumber === stageNum; }) : null;
+    /* ---- Group participants by stage ---- */
+    var stageGroups = {};  /* stageNumber → { stageData, participants[], label } */
+    var noStageParticipants = [];
+    participants.forEach(function (p) {
+      var label = resolveParticipantStage(p, state);
+      var num = parseStageNumber(label);
+      if (!num) { noStageParticipants.push(p); return; }
+      if (!stageGroups[num]) {
+        var sd = allStages.find(function (s) { return s.stageNumber === num; });
+        stageGroups[num] = { stageData: sd, participants: [], label: label, stageNumber: num };
+      }
+      stageGroups[num].participants.push(p);
+    });
+    var stageKeys = Object.keys(stageGroups).map(Number).sort(function (a, b) { return a - b; });
 
-    /* Auto-initialize selections for participants that have none yet */
+    /* Pick active tab */
+    if (!standardsCurrentStageTab || !stageGroups[standardsCurrentStageTab]) {
+      standardsCurrentStageTab = stageKeys.length ? stageKeys[0] : null;
+    }
+
+    /* ---- Auto-initialize defaults for participants without selections ---- */
     var dirty = false;
     participants.forEach(function (p) {
       if (sel[p.id]) return;
@@ -477,9 +492,7 @@
     });
     if (dirty) setStdSelections(sel);
 
-    var selected = sel[current.id] || [];
-
-    /* Summary bar */
+    /* ---- Summary bar ---- */
     var withSel = 0;
     var withoutSel = 0;
     participants.forEach(function (p) {
@@ -492,148 +505,358 @@
       (withoutSel > 0 ? '<span class="standards-warn">Без испытаний: <strong>' + withoutSel + '</strong></span>' : '') +
       '</div>';
 
-    /* Build participant navigation */
-    var navHtml = '<div class="standards-participant-nav">';
-    participants.forEach(function (p, idx) {
-      var pStageLabel = resolveParticipantStage(p, state);
-      var hasSelections = sel[p.id] && sel[p.id].length > 0;
-      navHtml += '<button class="class-tab' + (idx === standardsCurrentParticipantIdx ? ' is-active' : '') + '" data-pidx="' + idx + '" type="button">' +
-        escapeHtml(p.fullName.split(' ').slice(0, 2).join(' ')) +
-        '<small class="muted"> · ' + escapeHtml(pStageLabel || '?') + '</small>' +
-        (hasSelections ? ' <span class="standards-check-mark">&#10003;</span>' : '') +
+    /* ---- Stage tabs ---- */
+    var navHtml = '<div class="standards-stage-nav">';
+    stageKeys.forEach(function (num) {
+      var g = stageGroups[num];
+      var allOk = g.participants.every(function (p) { return sel[p.id] && sel[p.id].length > 0; });
+      navHtml += '<button class="class-tab' + (num === standardsCurrentStageTab ? ' is-active' : '') + '" data-stage-tab="' + num + '" type="button">' +
+        num + ' ступень <small>(' + g.participants.length + ' чел.)</small>' +
+        (allOk ? ' <span class="standards-check-mark">&#10003;</span>' : '') +
         '</button>';
     });
+    if (noStageParticipants.length) {
+      navHtml += '<span class="standards-warn" style="align-self:center;font-size:0.8rem;margin-left:0.5rem">' +
+        noStageParticipants.length + ' без ступени</span>';
+    }
     navHtml += '</div>';
 
-    /* Build standards items for current participant */
-    var itemsHtml = '';
-    if (!stageData) {
-      itemsHtml = '<div class="empty-state">Для участника ' + escapeHtml(current.fullName) + ' не удалось определить ступень (' + escapeHtml(stageLabel || 'нет данных') + '). Проверьте дату рождения и дату ГТО.</div>';
+    /* ---- Body for active stage ---- */
+    var bodyHtml = '';
+    var activeGroup = stageGroups[standardsCurrentStageTab];
+
+    if (!activeGroup || !activeGroup.stageData) {
+      bodyHtml = '<div class="empty-state">Нет данных нормативов для выбранной ступени.</div>';
     } else {
-      itemsHtml += '<h4>' + escapeHtml(stageNum + ' ступень (' + stageData.ageRange + ')') + ' — ' + escapeHtml(current.fullName) + '</h4>';
-      stageData.items.forEach(function (item) {
-        var allChecked = item.disciplines.every(function (d) { return selected.indexOf(d) >= 0; });
-        var noneChecked = item.disciplines.every(function (d) { return selected.indexOf(d) < 0; });
-        itemsHtml += '<div class="standards-item">';
-        itemsHtml += '<div class="standards-item-header"><span>Пункт ' + item.itemNumber;
-        if (item.hint) itemsHtml += ' <span class="standards-hint">(' + escapeHtml(item.hint) + ')</span>';
-        if (item.disciplines.length > 1) itemsHtml += ' <span class="standards-hint">(выберите из списка)</span>';
-        itemsHtml += '</span>';
-        if (item.disciplines.length > 1) {
-          itemsHtml += '<button class="btn btn-ghost standards-toggle-btn" data-toggle-item="' + item.itemNumber + '" type="button">' + (allChecked ? 'Снять все' : 'Выбрать все') + '</button>';
-        }
-        itemsHtml += '</div>';
-        item.disciplines.forEach(function (disc) {
-          var checked = selected.indexOf(disc) >= 0;
-          itemsHtml += '<label class="standards-discipline">' +
-            '<input type="checkbox" data-pid="' + current.id + '" data-disc="' + escapeHtml(disc) + '" data-item="' + item.itemNumber + '"' + (checked ? ' checked' : '') + '> ' +
-            escapeHtml(disc) +
+      var sd = activeGroup.stageData;
+      var sNum = activeGroup.stageNumber;
+      var groupPids = activeGroup.participants.map(function (p) { return p.id; });
+
+      /* Compute "stage-level" checked state: a discipline is checked at stage level
+         if ALL participants of this stage have it selected */
+      function isStageChecked(disc) {
+        return groupPids.every(function (pid) {
+          return sel[pid] && sel[pid].indexOf(disc) >= 0;
+        });
+      }
+      function isStagePartial(disc) {
+        var count = 0;
+        groupPids.forEach(function (pid) {
+          if (sel[pid] && sel[pid].indexOf(disc) >= 0) count++;
+        });
+        return count > 0 && count < groupPids.length;
+      }
+
+      /* ---- Mode toggle ---- */
+      var modeHtml = '<div class="standards-mode-bar">' +
+        '<button class="btn btn-sm' + (!standardsIndividualMode ? ' btn-primary' : ' btn-ghost') + '" id="stdModeStage" type="button">По ступени (для всех)</button>' +
+        '<button class="btn btn-sm' + (standardsIndividualMode ? ' btn-primary' : ' btn-ghost') + '" id="stdModeIndividual" type="button">Индивидуально</button>' +
+        '<span class="standards-hint" style="margin-left:auto">' + activeGroup.participants.length + ' участн. · ' + escapeHtml(sd.ageRange || '') + '</span>' +
+        '</div>';
+
+      if (!standardsIndividualMode) {
+        /* ========= STAGE-WIDE MODE ========= */
+        var itemsHtml = '<h4>' + sNum + ' ступень (' + escapeHtml(sd.ageRange || '') + ')</h4>';
+        sd.items.forEach(function (item) {
+          var allChecked = item.disciplines.every(isStageChecked);
+          itemsHtml += '<div class="standards-item">';
+          itemsHtml += '<div class="standards-item-header"><span>Пункт ' + item.itemNumber;
+          if (item.hint) itemsHtml += ' <span class="standards-hint">(' + escapeHtml(item.hint) + ')</span>';
+          if (item.disciplines.length > 1) itemsHtml += ' <span class="standards-hint">(выберите из списка)</span>';
+          itemsHtml += '</span>';
+          if (item.disciplines.length > 1) {
+            itemsHtml += '<button class="btn btn-ghost standards-toggle-btn" data-toggle-item="' + item.itemNumber + '" type="button">' + (allChecked ? 'Снять все' : 'Выбрать все') + '</button>';
+          }
+          itemsHtml += '</div>';
+          item.disciplines.forEach(function (disc) {
+            var checked = isStageChecked(disc);
+            var partial = !checked && isStagePartial(disc);
+            itemsHtml += '<label class="standards-discipline' + (partial ? ' standards-partial' : '') + '">' +
+              '<input type="checkbox" data-stage-disc="' + escapeHtml(disc) + '" data-item="' + item.itemNumber + '"' + (checked ? ' checked' : '') + '> ' +
+              escapeHtml(disc) +
+              (partial ? ' <span class="standards-hint">(не у всех)</span>' : '') +
+              '</label>';
+          });
+          itemsHtml += '</div>';
+        });
+
+        /* Actions */
+        var actionsHtml = '<div class="standards-actions">' +
+          '<button class="btn btn-ghost" id="standardsSelectAllItems" type="button">Выбрать все</button>' +
+          '<button class="btn btn-ghost" id="standardsClearAll" type="button">Снять все</button>' +
+          '</div>';
+
+        bodyHtml = modeHtml + '<div class="card">' + itemsHtml + actionsHtml + '</div>';
+      } else {
+        /* ========= INDIVIDUAL MODE ========= */
+        /* Participant selector (multi-select checkboxes) */
+        var pickHtml = '<div class="standards-individual-picker">' +
+          '<div class="standards-individual-picker-header">' +
+          '<span>Выберите участников для настройки:</span>' +
+          '<button class="btn btn-ghost btn-sm" id="stdPickAll" type="button">Все</button>' +
+          '<button class="btn btn-ghost btn-sm" id="stdPickNone" type="button">Никого</button>' +
+          '</div>';
+        activeGroup.participants.forEach(function (p) {
+          var picked = !!standardsSelectedPids[p.id];
+          var hasS = sel[p.id] && sel[p.id].length > 0;
+          pickHtml += '<label class="standards-individual-person">' +
+            '<input type="checkbox" data-pick-pid="' + p.id + '"' + (picked ? ' checked' : '') + '> ' +
+            escapeHtml(p.fullName) +
+            (hasS ? ' <span class="standards-check-mark">&#10003;</span>' : '') +
             '</label>';
         });
-        itemsHtml += '</div>';
-      });
-    }
+        pickHtml += '</div>';
 
-    /* Action buttons */
-    var actionsHtml = '<div class="standards-actions">';
-    if (participants.length > 1 && stageData) {
-      actionsHtml += '<button class="btn btn-secondary" id="standardsApplyAll" type="button">Применить выбор ко всем с ' + stageNum + ' ступенью</button>';
-    }
-    if (stageData) {
-      actionsHtml += '<button class="btn btn-ghost" id="standardsSelectAllItems" type="button">Выбрать все испытания</button>';
-      actionsHtml += '<button class="btn btn-ghost" id="standardsClearAll" type="button">Снять все</button>';
-    }
-    actionsHtml += '</div>';
+        /* Build selected pids list for this stage */
+        var editPids = [];
+        activeGroup.participants.forEach(function (p) {
+          if (standardsSelectedPids[p.id]) editPids.push(p.id);
+        });
 
-    els.standardsWrap.innerHTML = summaryHtml + navHtml +
-      '<div class="card">' + itemsHtml + actionsHtml + '</div>';
-
-    /* Bind participant navigation */
-    els.standardsWrap.querySelectorAll('[data-pidx]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        standardsCurrentParticipantIdx = parseInt(btn.dataset.pidx, 10);
-        renderStandards();
-      });
-    });
-
-    /* Bind checkbox changes — persist on every change */
-    els.standardsWrap.querySelectorAll('input[type="checkbox"][data-pid]').forEach(function (cb) {
-      cb.addEventListener('change', function () {
-        var pid = cb.dataset.pid;
-        var disc = cb.dataset.disc;
-        var s = getStdSelections();
-        if (!s[pid]) s[pid] = [];
-        if (cb.checked) {
-          if (s[pid].indexOf(disc) < 0) s[pid].push(disc);
+        var itemsHtml = '';
+        if (editPids.length === 0) {
+          itemsHtml = '<div class="empty-state" style="padding:1rem">Отметьте участников выше для индивидуальной настройки.</div>';
         } else {
-          s[pid] = s[pid].filter(function (d) { return d !== disc; });
-        }
-        setStdSelections(s);
-      });
-    });
+          var editNames = editPids.map(function (pid) {
+            var pp = activeGroup.participants.find(function (p) { return p.id === pid; });
+            return pp ? pp.fullName.split(' ').slice(0, 2).join(' ') : pid;
+          });
+          itemsHtml += '<h4>Настройка для: ' + escapeHtml(editNames.join(', ')) + '</h4>';
 
-    /* Bind toggle-all per item */
-    els.standardsWrap.querySelectorAll('[data-toggle-item]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        var itemNum = parseInt(btn.dataset.toggleItem, 10);
-        var item = stageData.items.find(function (it) { return it.itemNumber === itemNum; });
-        if (!item) return;
-        var s = getStdSelections();
-        if (!s[current.id]) s[current.id] = [];
-        var allIn = item.disciplines.every(function (d) { return s[current.id].indexOf(d) >= 0; });
-        if (allIn) {
-          /* Remove all */
-          var removeSet = new Set(item.disciplines);
-          s[current.id] = s[current.id].filter(function (d) { return !removeSet.has(d); });
-        } else {
-          /* Add all missing */
-          item.disciplines.forEach(function (d) {
-            if (s[current.id].indexOf(d) < 0) s[current.id].push(d);
+          /* For individual: checked = ALL selected pids have the disc */
+          function isIndivChecked(disc) {
+            return editPids.every(function (pid) { return sel[pid] && sel[pid].indexOf(disc) >= 0; });
+          }
+          function isIndivPartial(disc) {
+            var c = 0;
+            editPids.forEach(function (pid) { if (sel[pid] && sel[pid].indexOf(disc) >= 0) c++; });
+            return c > 0 && c < editPids.length;
+          }
+
+          sd.items.forEach(function (item) {
+            var allChecked = item.disciplines.every(isIndivChecked);
+            itemsHtml += '<div class="standards-item">';
+            itemsHtml += '<div class="standards-item-header"><span>Пункт ' + item.itemNumber;
+            if (item.hint) itemsHtml += ' <span class="standards-hint">(' + escapeHtml(item.hint) + ')</span>';
+            if (item.disciplines.length > 1) itemsHtml += ' <span class="standards-hint">(выберите из списка)</span>';
+            itemsHtml += '</span>';
+            if (item.disciplines.length > 1) {
+              itemsHtml += '<button class="btn btn-ghost standards-toggle-btn" data-indiv-toggle="' + item.itemNumber + '" type="button">' + (allChecked ? 'Снять все' : 'Выбрать все') + '</button>';
+            }
+            itemsHtml += '</div>';
+            item.disciplines.forEach(function (disc) {
+              var checked = isIndivChecked(disc);
+              var partial = !checked && isIndivPartial(disc);
+              itemsHtml += '<label class="standards-discipline' + (partial ? ' standards-partial' : '') + '">' +
+                '<input type="checkbox" data-indiv-disc="' + escapeHtml(disc) + '" data-item="' + item.itemNumber + '"' + (checked ? ' checked' : '') + '> ' +
+                escapeHtml(disc) +
+                (partial ? ' <span class="standards-hint">(не у всех)</span>' : '') +
+                '</label>';
+            });
+            itemsHtml += '</div>';
           });
         }
-        setStdSelections(s);
+
+        var actionsHtml = editPids.length ? '<div class="standards-actions">' +
+          '<button class="btn btn-ghost" id="standardsIndivSelectAll" type="button">Выбрать все</button>' +
+          '<button class="btn btn-ghost" id="standardsIndivClearAll" type="button">Снять все</button>' +
+          '</div>' : '';
+
+        bodyHtml = modeHtml + pickHtml + '<div class="card">' + itemsHtml + actionsHtml + '</div>';
+      }
+    }
+
+    /* ---- Warning for participants without stage ---- */
+    var noStageHtml = '';
+    if (noStageParticipants.length) {
+      noStageHtml = '<div class="standards-item" style="border-color:#fbbf24;margin-top:0.75rem">' +
+        '<div class="standards-item-header"><span class="standards-warn">Участники без определённой ступени:</span></div>';
+      noStageParticipants.forEach(function (p) {
+        noStageHtml += '<div style="padding:0.15rem 0.5rem;font-size:0.85rem">' + escapeHtml(p.fullName) + ' — проверьте дату рождения</div>';
+      });
+      noStageHtml += '</div>';
+    }
+
+    els.standardsWrap.innerHTML = summaryHtml + navHtml + bodyHtml + noStageHtml;
+
+    /* ======== EVENT BINDINGS ======== */
+
+    /* Stage tab clicks */
+    els.standardsWrap.querySelectorAll('[data-stage-tab]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        standardsCurrentStageTab = parseInt(btn.dataset.stageTab, 10);
+        standardsIndividualMode = false;
+        standardsSelectedPids = {};
         renderStandards();
       });
     });
 
-    /* Bind select-all and clear-all */
-    var selectAllBtn = document.getElementById('standardsSelectAllItems');
-    if (selectAllBtn && stageData) {
-      selectAllBtn.addEventListener('click', function () {
+    /* Mode toggle */
+    var modeStageBtn = document.getElementById('stdModeStage');
+    var modeIndivBtn = document.getElementById('stdModeIndividual');
+    if (modeStageBtn) modeStageBtn.addEventListener('click', function () {
+      standardsIndividualMode = false;
+      renderStandards();
+    });
+    if (modeIndivBtn) modeIndivBtn.addEventListener('click', function () {
+      standardsIndividualMode = true;
+      renderStandards();
+    });
+
+    if (!standardsIndividualMode && activeGroup && activeGroup.stageData) {
+      /* ---- Stage-wide checkbox changes ---- */
+      els.standardsWrap.querySelectorAll('input[type="checkbox"][data-stage-disc]').forEach(function (cb) {
+        cb.addEventListener('change', function () {
+          var disc = cb.dataset.disc || cb.getAttribute('data-stage-disc');
+          var s = getStdSelections();
+          activeGroup.participants.forEach(function (p) {
+            if (!s[p.id]) s[p.id] = [];
+            if (cb.checked) {
+              if (s[p.id].indexOf(disc) < 0) s[p.id].push(disc);
+            } else {
+              s[p.id] = s[p.id].filter(function (d) { return d !== disc; });
+            }
+          });
+          setStdSelections(s);
+          /* Update summary without full re-render for speed */
+          renderStandards();
+        });
+      });
+
+      /* Toggle-all per item (stage mode) */
+      els.standardsWrap.querySelectorAll('[data-toggle-item]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var itemNum = parseInt(btn.dataset.toggleItem, 10);
+          var item = activeGroup.stageData.items.find(function (it) { return it.itemNumber === itemNum; });
+          if (!item) return;
+          var s = getStdSelections();
+          var allIn = item.disciplines.every(function (d) {
+            return activeGroup.participants.every(function (p) { return s[p.id] && s[p.id].indexOf(d) >= 0; });
+          });
+          activeGroup.participants.forEach(function (p) {
+            if (!s[p.id]) s[p.id] = [];
+            if (allIn) {
+              var removeSet = new Set(item.disciplines);
+              s[p.id] = s[p.id].filter(function (d) { return !removeSet.has(d); });
+            } else {
+              item.disciplines.forEach(function (d) {
+                if (s[p.id].indexOf(d) < 0) s[p.id].push(d);
+              });
+            }
+          });
+          setStdSelections(s);
+          renderStandards();
+        });
+      });
+
+      /* Select-all / Clear-all (stage mode) */
+      var selectAllBtn = document.getElementById('standardsSelectAllItems');
+      if (selectAllBtn) selectAllBtn.addEventListener('click', function () {
         var s = getStdSelections();
         var allDiscs = [];
-        stageData.items.forEach(function (item) {
+        activeGroup.stageData.items.forEach(function (item) {
           item.disciplines.forEach(function (d) { allDiscs.push(d); });
         });
-        s[current.id] = allDiscs;
+        activeGroup.participants.forEach(function (p) { s[p.id] = allDiscs.slice(); });
         setStdSelections(s);
         renderStandards();
       });
-    }
-    var clearAllBtn = document.getElementById('standardsClearAll');
-    if (clearAllBtn) {
-      clearAllBtn.addEventListener('click', function () {
+      var clearAllBtn = document.getElementById('standardsClearAll');
+      if (clearAllBtn) clearAllBtn.addEventListener('click', function () {
         var s = getStdSelections();
-        s[current.id] = [];
+        activeGroup.participants.forEach(function (p) { s[p.id] = []; });
         setStdSelections(s);
         renderStandards();
       });
-    }
 
-    /* Bind apply to same stage */
-    var applyAllBtn = document.getElementById('standardsApplyAll');
-    if (applyAllBtn) {
-      applyAllBtn.addEventListener('click', function () {
-        var s = getStdSelections();
-        var currentSelection = (s[current.id] || []).slice();
-        var count = 0;
-        participants.forEach(function (p) {
-          var pStageNum = parseStageNumber(resolveParticipantStage(p, state));
-          if (pStageNum === stageNum && p.id !== current.id) {
-            s[p.id] = currentSelection.slice();
-            count++;
-          }
+    } else if (standardsIndividualMode && activeGroup && activeGroup.stageData) {
+      /* ---- Individual mode bindings ---- */
+
+      /* Participant picker */
+      els.standardsWrap.querySelectorAll('input[data-pick-pid]').forEach(function (cb) {
+        cb.addEventListener('change', function () {
+          var pid = cb.getAttribute('data-pick-pid');
+          if (cb.checked) standardsSelectedPids[pid] = true;
+          else delete standardsSelectedPids[pid];
+          renderStandards();
         });
+      });
+      var pickAllBtn = document.getElementById('stdPickAll');
+      if (pickAllBtn) pickAllBtn.addEventListener('click', function () {
+        activeGroup.participants.forEach(function (p) { standardsSelectedPids[p.id] = true; });
+        renderStandards();
+      });
+      var pickNoneBtn = document.getElementById('stdPickNone');
+      if (pickNoneBtn) pickNoneBtn.addEventListener('click', function () {
+        standardsSelectedPids = {};
+        renderStandards();
+      });
+
+      /* Individual discipline checkboxes */
+      var editPids = [];
+      activeGroup.participants.forEach(function (p) {
+        if (standardsSelectedPids[p.id]) editPids.push(p.id);
+      });
+
+      els.standardsWrap.querySelectorAll('input[type="checkbox"][data-indiv-disc]').forEach(function (cb) {
+        cb.addEventListener('change', function () {
+          var disc = cb.getAttribute('data-indiv-disc');
+          var s = getStdSelections();
+          editPids.forEach(function (pid) {
+            if (!s[pid]) s[pid] = [];
+            if (cb.checked) {
+              if (s[pid].indexOf(disc) < 0) s[pid].push(disc);
+            } else {
+              s[pid] = s[pid].filter(function (d) { return d !== disc; });
+            }
+          });
+          setStdSelections(s);
+          renderStandards();
+        });
+      });
+
+      /* Toggle-all per item (individual mode) */
+      els.standardsWrap.querySelectorAll('[data-indiv-toggle]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var itemNum = parseInt(btn.getAttribute('data-indiv-toggle'), 10);
+          var item = activeGroup.stageData.items.find(function (it) { return it.itemNumber === itemNum; });
+          if (!item) return;
+          var s = getStdSelections();
+          var allIn = item.disciplines.every(function (d) {
+            return editPids.every(function (pid) { return s[pid] && s[pid].indexOf(d) >= 0; });
+          });
+          editPids.forEach(function (pid) {
+            if (!s[pid]) s[pid] = [];
+            if (allIn) {
+              var removeSet = new Set(item.disciplines);
+              s[pid] = s[pid].filter(function (d) { return !removeSet.has(d); });
+            } else {
+              item.disciplines.forEach(function (d) {
+                if (s[pid].indexOf(d) < 0) s[pid].push(d);
+              });
+            }
+          });
+          setStdSelections(s);
+          renderStandards();
+        });
+      });
+
+      /* Select-all / Clear-all (individual mode) */
+      var indivSelectAll = document.getElementById('standardsIndivSelectAll');
+      if (indivSelectAll) indivSelectAll.addEventListener('click', function () {
+        var s = getStdSelections();
+        var allDiscs = [];
+        activeGroup.stageData.items.forEach(function (item) {
+          item.disciplines.forEach(function (d) { allDiscs.push(d); });
+        });
+        editPids.forEach(function (pid) { s[pid] = allDiscs.slice(); });
+        setStdSelections(s);
+        renderStandards();
+      });
+      var indivClearAll = document.getElementById('standardsIndivClearAll');
+      if (indivClearAll) indivClearAll.addEventListener('click', function () {
+        var s = getStdSelections();
+        editPids.forEach(function (pid) { s[pid] = []; });
         setStdSelections(s);
         renderStandards();
       });
