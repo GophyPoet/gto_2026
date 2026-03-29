@@ -78,7 +78,14 @@
 
   function renderNav() {
     const state = appState.getState();
-    els.stepNav.innerHTML = config.steps.map((step, index) => `
+    /* Hide the "prepare" step when data was loaded from school roster */
+    const rosterLoaded = state.analysis && state.analysis.school &&
+      state.analysis.school.allStudents && state.analysis.school.allStudents.length > 0 &&
+      state.analysis.source === 'roster';
+    const visibleSteps = rosterLoaded
+      ? config.steps.filter((s) => s.id !== 'prepare')
+      : config.steps;
+    els.stepNav.innerHTML = visibleSteps.map((step, index) => `
       <button class="step-link ${step.id === state.currentStep ? 'is-active' : ''}" data-step="${step.id}" type="button">${index + 1}. ${step.title}</button>
     `).join('');
     els.stepNav.querySelectorAll('[data-step]').forEach((button) => {
@@ -235,7 +242,11 @@
     });
 
     /* Render content based on active tab */
-    if (isExtraTab) {
+    const searchValue = els.studentSearchInput.value.trim();
+    if (searchValue && !isExtraTab) {
+      /* Cross-class search: show results from ALL classes when searching */
+      renderStudentTableAllClasses(classes, state);
+    } else if (isExtraTab) {
       await renderExtraTab(currentClass, state);
     } else {
       renderStudentTable(classItem, state);
@@ -294,6 +305,53 @@
         render();
       });
     }
+
+    els.studentsTableWrap.querySelectorAll('[data-add]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const student = state.analysis.school.allStudents.find((item) => item.id === button.dataset.add);
+        if (student) {
+          appState.addParticipant(student);
+          render();
+        }
+      });
+    });
+  }
+
+  function renderStudentTableAllClasses(classes, state) {
+    const searchValue = els.studentSearchInput.value.trim().toUpperCase();
+    const filterValue = els.studentFilterSelect.value;
+    const selectedIds = new Set(state.selectedParticipants.map((item) => item.id));
+
+    const allStudents = [];
+    classes.forEach((cls) => {
+      cls.students.forEach((student) => {
+        const matchesSearch = !searchValue || student.fullName.toUpperCase().includes(searchValue);
+        const selected = selectedIds.has(student.id);
+        const missingUin = !student.uin || student.uin === '-';
+        if (!matchesSearch) return;
+        if (filterValue === 'missingUin' && !missingUin) return;
+        if (filterValue === 'selected' && !selected) return;
+        if (filterValue === 'unselected' && selected) return;
+        allStudents.push(student);
+      });
+    });
+
+    els.studentsTableWrap.innerHTML = `
+      <div class="standards-hint" style="margin-bottom:0.5rem;font-size:0.85rem">Результаты поиска по всем классам (${allStudents.length})</div>
+      <table>
+        <thead><tr><th>ФИО</th><th>Класс</th><th>УИН</th><th>Действие</th></tr></thead>
+        <tbody>
+          ${allStudents.map((student) => `
+            <tr>
+              <td>${escapeHtml(student.fullName)}</td>
+              <td>${escapeHtml(student.className)}</td>
+              <td>${escapeHtml(student.uin || '-')}</td>
+              <td>${selectedIds.has(student.id) ? 'Уже в заявке' : `<button class="btn btn-primary" data-add="${student.id}" type="button">Добавить</button>`}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
 
     els.studentsTableWrap.querySelectorAll('[data-add]').forEach((button) => {
       button.addEventListener('click', () => {
@@ -567,6 +625,7 @@
           if (item.disciplines.length > 1) {
             itemsHtml += '<button class="btn btn-ghost standards-toggle-btn" data-toggle-item="' + item.itemNumber + '" type="button">' + (allChecked ? 'Снять все' : 'Выбрать все') + '</button>';
           }
+          itemsHtml += '<button class="btn btn-ghost btn-sm standards-add-disc-btn" data-add-disc-item="' + item.itemNumber + '" type="button" title="Добавить испытание">＋</button>';
           itemsHtml += '</div>';
           item.disciplines.forEach(function (disc) {
             var checked = isStageChecked(disc);
@@ -575,6 +634,7 @@
               '<input type="checkbox" data-stage-disc="' + escapeHtml(disc) + '" data-item="' + item.itemNumber + '"' + (checked ? ' checked' : '') + '> ' +
               escapeHtml(disc) +
               (partial ? ' <span class="standards-hint">(не у всех)</span>' : '') +
+              '<button class="standards-remove-disc-btn" data-rm-disc="' + escapeHtml(disc) + '" data-rm-item="' + item.itemNumber + '" type="button" title="Удалить испытание">✕</button>' +
               '</label>';
           });
           itemsHtml += '</div>';
@@ -769,6 +829,45 @@
         renderStandards();
       });
 
+      /* Add discipline to item */
+      els.standardsWrap.querySelectorAll('[data-add-disc-item]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var itemNum = parseInt(btn.getAttribute('data-add-disc-item'), 10);
+          var name = prompt('Введите название испытания:');
+          if (!name || !name.trim()) return;
+          name = name.trim();
+          if (window.GTOStandards) {
+            window.GTOStandards.addDiscipline(sNum, itemNum, name).then(function () {
+              standardsStagesCache = null;
+              renderStandards();
+            });
+          }
+        });
+      });
+
+      /* Remove discipline from item */
+      els.standardsWrap.querySelectorAll('[data-rm-disc]').forEach(function (btn) {
+        btn.addEventListener('click', function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          var disc = btn.getAttribute('data-rm-disc');
+          var itemNum = parseInt(btn.getAttribute('data-rm-item'), 10);
+          if (!confirm('Удалить испытание «' + disc + '» из пункта ' + itemNum + '?')) return;
+          if (window.GTOStandards) {
+            window.GTOStandards.removeDiscipline(sNum, itemNum, disc).then(function () {
+              /* Also remove from selections */
+              var s = getStdSelections();
+              Object.keys(s).forEach(function (pid) {
+                s[pid] = s[pid].filter(function (d) { return d !== disc; });
+              });
+              setStdSelections(s);
+              standardsStagesCache = null;
+              renderStandards();
+            });
+          }
+        });
+      });
+
     } else if (standardsIndividualMode && activeGroup && activeGroup.stageData) {
       /* ---- Individual mode bindings ---- */
 
@@ -928,11 +1027,20 @@
     return `<td class="${meta.problem ? 'cell-danger' : ''}">${escapeHtml(meta.value)}</td>`;
   }
 
+  function getVisibleSteps() {
+    const state = appState.getState();
+    const rosterLoaded = state.analysis && state.analysis.school &&
+      state.analysis.school.allStudents && state.analysis.school.allStudents.length > 0 &&
+      state.analysis.source === 'roster';
+    return rosterLoaded ? config.steps.filter((s) => s.id !== 'prepare') : config.steps;
+  }
+
   function updateButtons() {
     const state = appState.getState();
-    const index = config.steps.findIndex((step) => step.id === state.currentStep);
-    els.prevStepBtn.disabled = index === 0;
-    els.nextStepBtn.disabled = index === config.steps.length - 1;
+    const steps = getVisibleSteps();
+    const index = steps.findIndex((step) => step.id === state.currentStep);
+    els.prevStepBtn.disabled = index <= 0;
+    els.nextStepBtn.disabled = index === steps.length - 1;
   }
 
   function canOpenStep(stepId) {
@@ -946,10 +1054,11 @@
 
   function moveStep(direction) {
     const state = appState.getState();
-    const currentIndex = config.steps.findIndex((step) => step.id === state.currentStep);
+    const steps = getVisibleSteps();
+    const currentIndex = steps.findIndex((step) => step.id === state.currentStep);
     const nextIndex = currentIndex + direction;
-    if (nextIndex < 0 || nextIndex >= config.steps.length) return;
-    const nextStep = config.steps[nextIndex];
+    if (nextIndex < 0 || nextIndex >= steps.length) return;
+    const nextStep = steps[nextIndex];
     if (!canOpenStep(nextStep.id)) {
       if (nextStep.id === 'select') alert('Сначала загрузите и проанализируйте два файла.');
       if (nextStep.id === 'standards') alert('Сначала выберите хотя бы одного участника.');
@@ -1157,7 +1266,7 @@
     } finally {
       if (els.downloadCardsBtn) {
         els.downloadCardsBtn.disabled = false;
-        els.downloadCardsBtn.textContent = 'Скачать карточки (ZIP)';
+        els.downloadCardsBtn.textContent = 'Скачать карточки-заявки на всех участников';
       }
     }
   }
@@ -1238,6 +1347,7 @@
       appState.setFiles({ template: builtinTemplate });
 
       appState.setAnalysis({
+        source: 'roster',
         school: {
           classes: classObjects,
           allStudents: allStudents,

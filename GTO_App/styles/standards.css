@@ -77,7 +77,8 @@
   font-size: 0.8rem;
 }
 .standards-discipline {
-  display: block;
+  display: flex;
+  align-items: center;
   padding: 0.25rem 0 0.25rem 0.5rem;
   cursor: pointer;
   font-size: 0.85rem;
@@ -121,6 +122,30 @@
 .standards-toggle-btn {
   padding: 0.15rem 0.4rem !important;
   font-size: 0.7rem !important;
+}
+.standards-add-disc-btn {
+  padding: 0.1rem 0.35rem !important;
+  font-size: 0.8rem !important;
+  line-height: 1;
+  margin-left: 0.25rem;
+}
+.standards-remove-disc-btn {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 0 0.3rem;
+  margin-left: auto;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.standards-discipline:hover .standards-remove-disc-btn {
+  opacity: 1;
+}
+.standards-remove-disc-btn:hover {
+  color: #dc2626;
 }
 
 /* ---- Standards management (dashboard) ---- */
