@@ -1,30 +1,21 @@
 /**
- * card-generator.js — Generate personal GTO application cards (DOCX) and pack into ZIP.
+ * card-generator.js — Generate personal GTO application cards as PDF and pack into ZIP.
  *
- * Uses the embedded DOCX template (card-template.js) with JSZip (bundled with XLSX).
- * For each selected participant, replaces placeholders in document.xml and produces
- * a separate .docx file. All files are collected into a single ZIP for download.
+ * Uses jsPDF with embedded Liberation Serif font (Cyrillic support).
+ * For each selected participant, renders a one-page A4 PDF card.
+ * All cards are collected into:
+ *   1. A combined multi-page PDF (first in ZIP)
+ *   2. Individual per-participant PDF files
  *
  * Public API: window.GTOApp.cardGenerator
  *   .generateCards(participants, standardsSelections, meta) → Promise<void> (downloads ZIP)
- *   .generateSingleCard(participant, selectedTests, meta) → Promise<Blob>
+ *   .generateSingleCardPdf(participant, selectedTests, meta) → jsPDF instance
  */
 (function () {
   'use strict';
   window.GTOApp = window.GTOApp || {};
 
   var utils = window.GTOApp.utils;
-
-  /**
-   * Escape XML special characters.
-   */
-  function escXml(s) {
-    return String(s || '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
-  }
 
   /**
    * Transliterate Cyrillic to Latin for safe filenames.
@@ -50,7 +41,7 @@
     var parts = String(fullName || 'participant').trim().split(/\s+/);
     var slug = parts.map(function (p) { return transliterate(p); }).join('_');
     slug = slug.replace(/[^a-zA-Z0-9_-]/g, '');
-    return slug + '_kartochka.docx';
+    return slug + '_kartochka.pdf';
   }
 
   /**
@@ -64,9 +55,31 @@
   }
 
   /**
-   * Build the replacement map for a single participant.
+   * Register Liberation Serif fonts in jsPDF instance.
    */
-  function buildReplacements(participant, selectedTests, meta) {
+  function registerFonts(doc) {
+    var fonts = window.GTOApp.pdfFonts;
+    if (!fonts) return;
+    doc.addFileToVFS('LiberationSerif-Regular.ttf', fonts.regular);
+    doc.addFont('LiberationSerif-Regular.ttf', 'LiberationSerif', 'normal');
+    doc.addFileToVFS('LiberationSerif-Bold.ttf', fonts.bold);
+    doc.addFont('LiberationSerif-Bold.ttf', 'LiberationSerif', 'bold');
+    doc.setFont('LiberationSerif', 'normal');
+  }
+
+  /**
+   * Create a new jsPDF document with fonts registered.
+   */
+  function createPdfDoc() {
+    var doc = new jspdf.jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    registerFonts(doc);
+    return doc;
+  }
+
+  /**
+   * Build data rows for the card table.
+   */
+  function buildCardRows(participant, selectedTests, meta) {
     var placeholder = '-';
     var docSeries = participant.documentSeries || '';
     var docNumber = participant.documentNumber || '';
@@ -78,68 +91,191 @@
       ? utils.formatDate(participant.birthDate)
       : placeholder;
 
-    var address = participant.address || placeholder;
-    /* If address is not pre-built, try building from components */
-    if (address === placeholder && window.GTOApp.normalizer) {
-      var builtAddr = window.GTOApp.normalizer.buildAddress(participant);
-      if (builtAddr) address = builtAddr;
+    var address = participant.address || '';
+    if (!address && window.GTOApp.normalizer) {
+      address = window.GTOApp.normalizer.buildAddress(participant) || placeholder;
+    }
+    if (!address) address = placeholder;
+
+    var submissionDate = meta.submissionDate
+      ? utils.formatDate(meta.submissionDate)
+      : placeholder;
+
+    return [
+      { num: '1', label: 'Фамилия, Имя, Отчество', value: participant.fullName || placeholder },
+      { num: '2', label: 'Пол', value: participant.gender || placeholder },
+      { num: '3', label: 'ID номер — Идентификационный номер участника тестирования в АИС ГТО', value: participant.uin || placeholder },
+      { num: '4', label: 'Дата рождения', value: birthDate },
+      { num: '5', label: 'Документ, удостоверяющий личность (паспорт или св-во о рождении)', value: documentStr },
+      { num: '6', label: 'Адрес места жительства', value: address },
+      { num: '7', label: 'Контактный телефон', value: placeholder },
+      { num: '8', label: 'Адрес электронной почты', value: placeholder },
+      { num: '9', label: 'Основное место учебы', value: participant.schoolName || meta.schoolName || placeholder },
+      { num: '10', label: 'Спортивное звание', value: placeholder },
+      { num: '11', label: 'Почетное спортивное звание', value: placeholder },
+      { num: '12', label: 'Спортивный разряд с указанием вида спорта', value: placeholder },
+      { num: '13', label: 'Перечень выбранных испытаний', value: formatTestsList(selectedTests) },
+      { num: '14', label: 'Дата представления документов', value: submissionDate }
+    ];
+  }
+
+  /* ---- PDF Drawing Helpers ---- */
+
+  var PAGE_W = 210; // A4 width mm
+  var MARGIN_LEFT = 15;
+  var MARGIN_RIGHT = 15;
+  var MARGIN_TOP = 15;
+  var TABLE_W = PAGE_W - MARGIN_LEFT - MARGIN_RIGHT; // 180mm
+  var COL_NUM_W = 8;   // "№" column
+  var COL_LABEL_W = 72; // "Наименование" column
+  var COL_VALUE_W = TABLE_W - COL_NUM_W - COL_LABEL_W; // ~100mm
+
+  /**
+   * Split text into lines that fit within maxWidth (mm) at given fontSize (pt).
+   */
+  function wrapText(doc, text, maxWidth, fontSize) {
+    doc.setFontSize(fontSize);
+    var lines = [];
+    var paragraphs = String(text || '').split('\n');
+    for (var p = 0; p < paragraphs.length; p++) {
+      var wrapped = doc.splitTextToSize(paragraphs[p], maxWidth);
+      for (var w = 0; w < wrapped.length; w++) {
+        lines.push(wrapped[w]);
+      }
+    }
+    return lines.length ? lines : [''];
+  }
+
+  /**
+   * Draw a single table cell with border and text.
+   */
+  function drawCell(doc, x, y, w, h, text, fontSize, isBold, align) {
+    doc.setDrawColor(0);
+    doc.setLineWidth(0.3);
+    doc.rect(x, y, w, h);
+
+    doc.setFont('LiberationSerif', isBold ? 'bold' : 'normal');
+    doc.setFontSize(fontSize);
+
+    var textX = x + 1.5;
+    if (align === 'center') {
+      textX = x + w / 2;
+    }
+    var textY = y + fontSize * 0.35 + 1.5; // approximate baseline offset
+
+    if (typeof text === 'string') {
+      var lines = text.split('\n');
+      if (lines.length === 1) {
+        doc.text(text, textX, textY, { align: align || 'left', maxWidth: w - 3 });
+      } else {
+        for (var i = 0; i < lines.length; i++) {
+          doc.text(lines[i], textX, textY + i * (fontSize * 0.4), { align: align || 'left', maxWidth: w - 3 });
+        }
+      }
+    }
+  }
+
+  /**
+   * Render one personal card onto the current page of the jsPDF doc.
+   * Returns the doc for chaining.
+   */
+  function renderCard(doc, participant, selectedTests, meta) {
+    var rows = buildCardRows(participant, selectedTests, meta);
+
+    /* Font sizes */
+    var titleSize = 14;
+    var subtitleSize = 9;
+    var headerSize = 10;
+    var bodySize = 9;
+    var lineH = bodySize * 0.42; // mm per line of text
+
+    /* ---- Title ---- */
+    var y = MARGIN_TOP;
+    doc.setFont('LiberationSerif', 'bold');
+    doc.setFontSize(titleSize);
+    doc.text('ЗАЯВКА', PAGE_W / 2, y + 5, { align: 'center' });
+    y += 8;
+
+    doc.setFont('LiberationSerif', 'normal');
+    doc.setFontSize(subtitleSize);
+    doc.text('на прохождение тестирования в рамках Всероссийского физкультурно-спортивного комплекса', PAGE_W / 2, y + 4, { align: 'center' });
+    y += 5;
+    doc.text('«Готов к труду и обороне» (ГТО)', PAGE_W / 2, y + 4, { align: 'center' });
+    y += 8;
+
+    /* ---- Table header row ---- */
+    var x0 = MARGIN_LEFT;
+    var headerH = 7;
+    drawCell(doc, x0, y, COL_NUM_W, headerH, '№', headerSize, true, 'center');
+    drawCell(doc, x0 + COL_NUM_W, y, COL_LABEL_W, headerH, 'Наименование', headerSize, true, 'center');
+    drawCell(doc, x0 + COL_NUM_W + COL_LABEL_W, y, COL_VALUE_W, headerH, 'Информация', headerSize, true, 'center');
+    y += headerH;
+
+    /* ---- Data rows ---- */
+    var padding = 2; // vertical padding in cell
+    for (var r = 0; r < rows.length; r++) {
+      var row = rows[r];
+
+      /* Calculate row height based on text wrapping */
+      var labelLines = wrapText(doc, row.label, COL_LABEL_W - 3, bodySize);
+      var valueLines = wrapText(doc, row.value, COL_VALUE_W - 3, bodySize);
+      var maxLines = Math.max(labelLines.length, valueLines.length, 1);
+      var rowH = Math.max(maxLines * lineH + padding * 2, 6);
+
+      /* Draw cells */
+      /* Number cell */
+      doc.setDrawColor(0);
+      doc.setLineWidth(0.3);
+      doc.rect(x0, y, COL_NUM_W, rowH);
+      doc.setFont('LiberationSerif', 'normal');
+      doc.setFontSize(bodySize);
+      doc.text(row.num, x0 + COL_NUM_W / 2, y + rowH / 2 + 1, { align: 'center' });
+
+      /* Label cell */
+      doc.rect(x0 + COL_NUM_W, y, COL_LABEL_W, rowH);
+      doc.setFont('LiberationSerif', 'normal');
+      doc.setFontSize(bodySize);
+      var labelY = y + padding + lineH * 0.7;
+      for (var li = 0; li < labelLines.length; li++) {
+        doc.text(labelLines[li], x0 + COL_NUM_W + 1.5, labelY + li * lineH);
+      }
+
+      /* Value cell */
+      doc.rect(x0 + COL_NUM_W + COL_LABEL_W, y, COL_VALUE_W, rowH);
+      doc.setFont('LiberationSerif', 'normal');
+      doc.setFontSize(bodySize);
+      var valueY = y + padding + lineH * 0.7;
+      for (var vi = 0; vi < valueLines.length; vi++) {
+        doc.text(valueLines[vi], x0 + COL_NUM_W + COL_LABEL_W + 1.5, valueY + vi * lineH);
+      }
+
+      y += rowH;
     }
 
-    return {
-      '{{FULLNAME}}': participant.fullName || placeholder,
-      '{{GENDER}}': participant.gender || placeholder,
-      '{{IDNUMBER}}': participant.uin || placeholder,
-      '{{BIRTHDATE}}': birthDate,
-      '{{DOCUMENT}}': documentStr,
-      '{{ADDRESS}}': address,
-      '{{PHONE}}': placeholder,
-      '{{EMAIL}}': placeholder,
-      '{{SCHOOL}}': participant.schoolName || meta.schoolName || placeholder,
-      '{{SPORTTITLE}}': placeholder,
-      '{{HONORTITLE}}': placeholder,
-      '{{SPORTRANK}}': placeholder,
-      '{{TESTS}}': formatTestsList(selectedTests)
-    };
+    /* ---- Signature section ---- */
+    y += 10;
+    if (y < 260) { // only if there's space
+      doc.setFont('LiberationSerif', 'normal');
+      doc.setFontSize(9);
+      doc.text('Подпись участника: ___________________', MARGIN_LEFT, y);
+      doc.text('Дата: ___________________', MARGIN_LEFT + 110, y);
+    }
+
+    return doc;
   }
 
   /**
-   * Replace placeholders in DOCX document.xml.
-   * Handles the case where Word splits placeholder text across multiple <w:t> elements.
-   */
-  function replacePlaceholders(docXml, replacements) {
-    var result = docXml;
-    Object.keys(replacements).forEach(function (key) {
-      var value = escXml(replacements[key]);
-      /* Handle newlines in value: convert to DOCX line breaks */
-      value = value.replace(/\n/g, '</w:t><w:br/><w:t xml:space="preserve">');
-      /* Simple replace — placeholders should be intact in our generated template */
-      result = result.split(key).join(value);
-    });
-    return result;
-  }
-
-  /**
-   * Generate a single DOCX Blob for one participant.
+   * Generate a single PDF Blob for one participant.
    */
   function generateSingleCard(participant, selectedTests, meta) {
-    var template = window.GTOApp.cardTemplate;
-    if (!template || !template.base64) {
-      return Promise.reject(new Error('Шаблон личной карточки не загружен'));
+    try {
+      var doc = createPdfDoc();
+      renderCard(doc, participant, selectedTests, meta);
+      var blob = doc.output('blob');
+      return Promise.resolve(blob);
+    } catch (e) {
+      return Promise.reject(e);
     }
-
-    var binary = utils.base64ToUint8Array(template.base64);
-    return JSZip.loadAsync(binary).then(function (zip) {
-      return zip.file('word/document.xml').async('string').then(function (docXml) {
-        var replacements = buildReplacements(participant, selectedTests, meta);
-        var newDocXml = replacePlaceholders(docXml, replacements);
-        zip.file('word/document.xml', newDocXml);
-        return zip.generateAsync({
-          type: 'blob',
-          mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-          compression: 'DEFLATE'
-        });
-      });
-    });
   }
 
   /**
@@ -147,39 +283,54 @@
    *
    * @param {Array} participants — selected participants with full data
    * @param {Object} standardsSelections — { participantId: [test1, test2, ...] }
-   * @param {Object} meta — { schoolName, ... }
+   * @param {Object} meta — { schoolName, submissionDate, ... }
    */
   function generateCards(participants, standardsSelections, meta) {
     if (!participants || !participants.length) {
       return Promise.reject(new Error('Нет выбранных участников'));
     }
 
-    var masterZip = new JSZip();
-    var usedNames = {};
+    try {
+      var masterZip = new JSZip();
+      var usedNames = {};
 
-    var tasks = participants.map(function (p) {
-      var tests = standardsSelections[p.id] || [];
-      return generateSingleCard(p, tests, meta).then(function (blob) {
-        var name = buildFileName(p.fullName);
-        /* Avoid duplicate filenames */
+      /* 1. Build combined multi-page PDF */
+      var combinedDoc = createPdfDoc();
+      for (var i = 0; i < participants.length; i++) {
+        if (i > 0) combinedDoc.addPage();
+        var p = participants[i];
+        var tests = standardsSelections[p.id] || [];
+        renderCard(combinedDoc, p, tests, meta);
+      }
+      var combinedBlob = combinedDoc.output('arraybuffer');
+      masterZip.file('00_Vse_kartochki_GTO.pdf', combinedBlob);
+
+      /* 2. Build individual PDF files */
+      for (var j = 0; j < participants.length; j++) {
+        var part = participants[j];
+        var partTests = standardsSelections[part.id] || [];
+        var singleDoc = createPdfDoc();
+        renderCard(singleDoc, part, partTests, meta);
+        var singleBuf = singleDoc.output('arraybuffer');
+
+        var name = buildFileName(part.fullName);
         if (usedNames[name]) {
           var count = usedNames[name]++;
-          name = name.replace('.docx', '_' + count + '.docx');
+          name = name.replace('.pdf', '_' + count + '.pdf');
         } else {
           usedNames[name] = 1;
         }
-        return blob.arrayBuffer().then(function (buf) {
-          masterZip.file(name, buf);
-        });
-      });
-    });
+        masterZip.file(name, singleBuf);
+      }
 
-    return Promise.all(tasks).then(function () {
-      return masterZip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
-    }).then(function (zipBlob) {
-      var schoolSlug = utils.slugify(meta.schoolName || 'school');
-      utils.downloadBlob(zipBlob, 'Kartochki_GTO_' + schoolSlug + '.zip');
-    });
+      /* 3. Generate and download ZIP */
+      return masterZip.generateAsync({ type: 'blob', compression: 'DEFLATE' }).then(function (zipBlob) {
+        var schoolSlug = utils.slugify(meta.schoolName || 'school');
+        utils.downloadBlob(zipBlob, 'Kartochki_GTO_' + schoolSlug + '.zip');
+      });
+    } catch (e) {
+      return Promise.reject(e);
+    }
   }
 
   window.GTOApp.cardGenerator = {

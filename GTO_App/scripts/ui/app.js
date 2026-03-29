@@ -1272,7 +1272,12 @@
       await cardGen.generateCards(
         state.selectedParticipants,
         getStdSelections(),
-        { schoolName: state.meta.schoolName || '' }
+        {
+          schoolName: state.meta.schoolName || '',
+          submissionDate: state.meta.submissionDate || '',
+          eventDate: state.meta.eventDate || '',
+          director: state.meta.director || ''
+        }
       );
     } catch (error) {
       logger.error(error);
