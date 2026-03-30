@@ -296,7 +296,7 @@
               <td>${escapeHtml(student.fullName)}</td>
               <td>${escapeHtml(student.className)}</td>
               <td>${escapeHtml(student.uin || '-')}</td>
-              <td>${selectedIds.has(student.id) ? 'Уже в заявке' : `<button class="btn btn-primary" data-add="${student.id}" type="button">Добавить</button>`}</td>
+              <td>${selectedIds.has(student.id) ? `<span class="muted">Уже в заявке</span> <button class="btn btn-secondary btn-sm" data-remove-inline="${student.id}" type="button">Убрать</button>` : `<button class="btn btn-primary" data-add="${student.id}" type="button">Добавить</button>`}</td>
             </tr>
           `).join('')}
         </tbody>
@@ -321,6 +321,13 @@
           appState.addParticipant(student);
           render();
         }
+      });
+    });
+
+    els.studentsTableWrap.querySelectorAll('[data-remove-inline]').forEach((button) => {
+      button.addEventListener('click', () => {
+        appState.removeParticipant(button.dataset.removeInline);
+        render();
       });
     });
   }
@@ -354,7 +361,7 @@
               <td>${escapeHtml(student.fullName)}</td>
               <td>${escapeHtml(student.className)}</td>
               <td>${escapeHtml(student.uin || '-')}</td>
-              <td>${selectedIds.has(student.id) ? 'Уже в заявке' : `<button class="btn btn-primary" data-add="${student.id}" type="button">Добавить</button>`}</td>
+              <td>${selectedIds.has(student.id) ? `<span class="muted">Уже в заявке</span> <button class="btn btn-secondary btn-sm" data-remove-inline="${student.id}" type="button">Убрать</button>` : `<button class="btn btn-primary" data-add="${student.id}" type="button">Добавить</button>`}</td>
             </tr>
           `).join('')}
         </tbody>
@@ -368,6 +375,13 @@
           appState.addParticipant(student);
           render();
         }
+      });
+    });
+
+    els.studentsTableWrap.querySelectorAll('[data-remove-inline]').forEach((button) => {
+      button.addEventListener('click', () => {
+        appState.removeParticipant(button.dataset.removeInline);
+        render();
       });
     });
   }
@@ -401,7 +415,7 @@
               <td>${escapeHtml(s.className || '-')}</td>
               <td>${escapeHtml(s.formOfEducation || '-')}</td>
               <td>${escapeHtml(s.uin || '-')}</td>
-              <td>${selectedIds.has(s.id) ? 'Уже в заявке' : `<button class="btn btn-primary" data-add="${s.id}" type="button">Добавить</button>`}</td>
+              <td>${selectedIds.has(s.id) ? `<span class="muted">Уже в заявке</span> <button class="btn btn-secondary btn-sm" data-remove-inline="${s.id}" type="button">Убрать</button>` : `<button class="btn btn-primary" data-add="${s.id}" type="button">Добавить</button>`}</td>
             </tr>
           `; }).join('')}
         </tbody>
@@ -423,6 +437,13 @@
           appState.addParticipant(student);
           render();
         }
+      });
+    });
+
+    els.studentsTableWrap.querySelectorAll('[data-remove-inline]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        appState.removeParticipant(btn.dataset.removeInline);
+        render();
       });
     });
   }
@@ -464,7 +485,7 @@
               <td>${escapeHtml(person.fullName)}</td>
               <td>${escapeHtml(person.role || '-')}</td>
               <td>${escapeHtml(person.phone || '-')}</td>
-              <td>${selectedIds.has(person.id) ? 'Уже в заявке' : `<button class="btn btn-primary" data-add-person="${person.id}" data-store="${tab.store}" type="button">Добавить</button>`}</td>
+              <td>${selectedIds.has(person.id) ? `<span class="muted">Уже в заявке</span> <button class="btn btn-secondary btn-sm" data-remove-inline="${person.id}" type="button">Убрать</button>` : `<button class="btn btn-primary" data-add-person="${person.id}" data-store="${tab.store}" type="button">Добавить</button>`}</td>
             </tr>
           `).join('')}
         </tbody>
@@ -489,6 +510,13 @@
           });
           render();
         }
+      });
+    });
+
+    els.studentsTableWrap.querySelectorAll('[data-remove-inline]').forEach((button) => {
+      button.addEventListener('click', () => {
+        appState.removeParticipant(button.dataset.removeInline);
+        render();
       });
     });
   }

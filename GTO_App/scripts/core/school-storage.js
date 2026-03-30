@@ -261,6 +261,22 @@
    */
   async function importFullReplace(data) {
     await init();
+
+    /* Collect existing student data keyed by normalized name+class for preservation */
+    var preserveMap = {};
+    var tRead = tx(['students', 'classes'], 'readonly');
+    var existingStudents = await reqP(tRead.objectStore('students').getAll());
+    var existingClasses = await reqP(tRead.objectStore('classes').getAll());
+    var classNameMap = {};
+    existingClasses.forEach(function (c) { classNameMap[c.id] = normalizeClassName(c.name); });
+    existingStudents.forEach(function (s) {
+      var key = normalizeName(s.fullName) + '|' + (classNameMap[s.classId] || '');
+      preserveMap[key] = s;
+      /* Also store by name-only as fallback */
+      var nameKey = normalizeName(s.fullName);
+      if (!preserveMap['__name__' + nameKey]) preserveMap['__name__' + nameKey] = s;
+    });
+
     var t = tx(['classes', 'students'], 'readwrite');
     /* Clear all existing */
     t.objectStore('classes').clear();
@@ -271,27 +287,46 @@
       t.objectStore('classes').put({
         id: classId, name: cls.className, sortOrder: ci, createdAt: now, updatedAt: now
       });
+      var normalizedClass = normalizeClassName(cls.className);
       (cls.students || []).forEach(function (stu, si) {
+        /* Look up preserved data by name+class, then by name only */
+        var nName = normalizeName(stu.fullName);
+        var prev = preserveMap[nName + '|' + normalizedClass] || preserveMap['__name__' + nName] || {};
+
+        /* Preserve UIN: keep existing if incoming is empty */
+        var incomingUin = (stu.uin || '').trim();
+        var preservedUin = incomingUin || (prev.uin || '').trim();
+
+        /* Preserve extended fields: keep existing if incoming is empty */
+        var extFieldNames = ['formOfEducation', 'gender', 'birthDate', 'documentType', 'documentSeries', 'documentNumber',
+          'snils', 'residenceLocality', 'residenceStreetName', 'residenceStreetType',
+          'residenceHouse', 'residenceBuilding', 'residenceApartment'];
+        var extData = {};
+        extFieldNames.forEach(function (f) {
+          var inc = (stu[f] || '').trim();
+          extData[f] = inc || (prev[f] || '').trim();
+        });
+
         t.objectStore('students').put({
           id: 'stu_' + genId() + '_' + ci + '_' + si,
           classId: classId,
           classNumber: stu.classNumber || (si + 1),
           fullName: (stu.fullName || '').trim(),
-          normalizedName: normalizeName(stu.fullName),
-          uin: (stu.uin || '').trim(),
-          formOfEducation: (stu.formOfEducation || '').trim(),
-          gender: (stu.gender || '').trim(),
-          birthDate: (stu.birthDate || '').trim(),
-          documentType: (stu.documentType || '').trim(),
-          documentSeries: (stu.documentSeries || '').trim(),
-          documentNumber: (stu.documentNumber || '').trim(),
-          snils: (stu.snils || '').trim(),
-          residenceLocality: (stu.residenceLocality || '').trim(),
-          residenceStreetName: (stu.residenceStreetName || '').trim(),
-          residenceStreetType: (stu.residenceStreetType || '').trim(),
-          residenceHouse: (stu.residenceHouse || '').trim(),
-          residenceBuilding: (stu.residenceBuilding || '').trim(),
-          residenceApartment: (stu.residenceApartment || '').trim(),
+          normalizedName: nName,
+          uin: preservedUin,
+          formOfEducation: extData.formOfEducation,
+          gender: extData.gender,
+          birthDate: extData.birthDate,
+          documentType: extData.documentType,
+          documentSeries: extData.documentSeries,
+          documentNumber: extData.documentNumber,
+          snils: extData.snils,
+          residenceLocality: extData.residenceLocality,
+          residenceStreetName: extData.residenceStreetName,
+          residenceStreetType: extData.residenceStreetType,
+          residenceHouse: extData.residenceHouse,
+          residenceBuilding: extData.residenceBuilding,
+          residenceApartment: extData.residenceApartment,
           createdAt: now,
           updatedAt: now
         });
