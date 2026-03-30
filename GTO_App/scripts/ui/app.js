@@ -1418,6 +1418,52 @@
     }
   }
 
+  /**
+   * Sync already-selected participants with fresh data from the roster.
+   * Updates UIN, gender, birthDate, document, address, etc. from the
+   * latest roster so that edits made on the dashboard are reflected
+   * immediately without re-selecting the participant.
+   */
+  function syncSelectedFromRoster() {
+    var state = appState.getState();
+    var allStudents = state.analysis && state.analysis.school
+      ? state.analysis.school.allStudents
+      : [];
+    if (!allStudents.length || !state.selectedParticipants.length) return;
+
+    var rosterById = {};
+    for (var i = 0; i < allStudents.length; i++) {
+      rosterById[allStudents[i].id] = allStudents[i];
+    }
+
+    var changed = false;
+    var syncFields = [
+      'fullName', 'uin', 'gender', 'birthDate', 'className',
+      'documentType', 'documentSeries', 'documentNumber', 'snils',
+      'residenceLocality', 'residenceStreetName', 'residenceStreetType',
+      'residenceHouse', 'residenceBuilding', 'residenceApartment',
+      'schoolName', 'address'
+    ];
+
+    for (var j = 0; j < state.selectedParticipants.length; j++) {
+      var p = state.selectedParticipants[j];
+      var fresh = rosterById[p.id];
+      if (!fresh) continue;
+
+      for (var k = 0; k < syncFields.length; k++) {
+        var field = syncFields[k];
+        if (fresh[field] !== undefined && fresh[field] !== p[field]) {
+          p[field] = fresh[field];
+          changed = true;
+        }
+      }
+    }
+
+    if (changed) {
+      appState.save();
+    }
+  }
+
   /* ---- Session bar integration ---- */
   function initSessionBar() {
     var sessionBar = document.getElementById('sessionBar');
@@ -1494,7 +1540,13 @@
         /* Skip prepare step — go straight to participant selection */
         appState.setCurrentStep('select');
       }
+    } else {
+      /* Refresh roster data even if analysis exists (user may have edited roster) */
+      await loadFromRoster();
     }
+
+    /* Sync selected participants with fresh roster data */
+    syncSelectedFromRoster();
 
     /* Sync global school settings (schoolName, director) from dashboard into session meta */
     syncGlobalSettingsToMeta();
