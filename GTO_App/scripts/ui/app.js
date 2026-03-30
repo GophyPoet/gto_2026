@@ -1420,6 +1420,7 @@
 
   /**
    * Sync already-selected participants with fresh data from the roster.
+   * Matches by ID first, then falls back to normalized FIO + className.
    * Updates UIN, gender, birthDate, document, address, etc. from the
    * latest roster so that edits made on the dashboard are reflected
    * immediately without re-selecting the participant.
@@ -1431,9 +1432,25 @@
       : [];
     if (!allStudents.length || !state.selectedParticipants.length) return;
 
+    /* Build lookup by ID */
     var rosterById = {};
     for (var i = 0; i < allStudents.length; i++) {
       rosterById[allStudents[i].id] = allStudents[i];
+    }
+
+    /* Build lookup by normalized name + class for fallback matching */
+    var rosterByNameClass = {};
+    for (var i2 = 0; i2 < allStudents.length; i2++) {
+      var s = allStudents[i2];
+      var key = normalizer.normalizeFio(s.fullName) + '||' + (s.className || '').toUpperCase();
+      rosterByNameClass[key] = s;
+    }
+    /* Also index by name only (for cases where className might differ) */
+    var rosterByName = {};
+    for (var i3 = 0; i3 < allStudents.length; i3++) {
+      var s2 = allStudents[i3];
+      var nameKey = normalizer.normalizeFio(s2.fullName);
+      if (!rosterByName[nameKey]) rosterByName[nameKey] = s2;
     }
 
     var changed = false;
@@ -1447,8 +1464,29 @@
 
     for (var j = 0; j < state.selectedParticipants.length; j++) {
       var p = state.selectedParticipants[j];
+
+      /* Try match by ID first, then by name+class, then by name only */
       var fresh = rosterById[p.id];
+      if (!fresh) {
+        var nKey = normalizer.normalizeFio(p.fullName) + '||' + (p.className || '').toUpperCase();
+        fresh = rosterByNameClass[nKey];
+      }
+      if (!fresh) {
+        fresh = rosterByName[normalizer.normalizeFio(p.fullName)];
+      }
       if (!fresh) continue;
+
+      /* If matched by name but IDs differ, update ID to roster ID
+         and migrate standards selections to the new ID */
+      if (fresh.id !== p.id) {
+        var oldId = p.id;
+        p.id = fresh.id;
+        if (state.standardsSelections && state.standardsSelections[oldId]) {
+          state.standardsSelections[fresh.id] = state.standardsSelections[oldId];
+          delete state.standardsSelections[oldId];
+        }
+        changed = true;
+      }
 
       for (var k = 0; k < syncFields.length; k++) {
         var field = syncFields[k];
