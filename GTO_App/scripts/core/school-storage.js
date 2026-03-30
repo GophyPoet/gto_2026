@@ -170,6 +170,7 @@
       /* ASU extended fields */
       gender: (data.gender || '').trim(),
       birthDate: (data.birthDate || '').trim(),
+      formOfEducation: (data.formOfEducation || '').trim(),
       documentType: (data.documentType || '').trim(),
       documentSeries: (data.documentSeries || '').trim(),
       documentNumber: (data.documentNumber || '').trim(),
@@ -203,7 +204,7 @@
     if (patch.classId !== undefined) s.classId = patch.classId;
     if (patch.classNumber !== undefined) s.classNumber = patch.classNumber;
     /* ASU extended fields */
-    var extFields = ['gender', 'birthDate', 'documentType', 'documentSeries', 'documentNumber',
+    var extFields = ['gender', 'birthDate', 'formOfEducation', 'documentType', 'documentSeries', 'documentNumber',
       'snils', 'residenceLocality', 'residenceStreetName', 'residenceStreetType',
       'residenceHouse', 'residenceBuilding', 'residenceApartment'];
     extFields.forEach(function (f) {
@@ -278,6 +279,7 @@
           fullName: (stu.fullName || '').trim(),
           normalizedName: normalizeName(stu.fullName),
           uin: (stu.uin || '').trim(),
+          formOfEducation: (stu.formOfEducation || '').trim(),
           gender: (stu.gender || '').trim(),
           birthDate: (stu.birthDate || '').trim(),
           documentType: (stu.documentType || '').trim(),
@@ -391,7 +393,7 @@
         }
 
         /* Sync extended ASU fields (overwrite with fresh data, preserve UIN) */
-        var extFields = ['gender', 'birthDate', 'documentType', 'documentSeries', 'documentNumber',
+        var extFields = ['gender', 'birthDate', 'formOfEducation', 'documentType', 'documentSeries', 'documentNumber',
           'snils', 'residenceLocality', 'residenceStreetName', 'residenceStreetType',
           'residenceHouse', 'residenceBuilding', 'residenceApartment'];
         extFields.forEach(function (f) {
@@ -428,6 +430,7 @@
           classNumber: null,
           fullName: inc.fullName,
           uin: '',
+          formOfEducation: inc.formOfEducation || '',
           gender: inc.gender || '',
           birthDate: inc.birthDate || '',
           documentType: inc.documentType || '',
@@ -646,12 +649,31 @@
   };
 
   /* ======= Stats ======= */
+  function isHomeschooler(s) {
+    var form = (s.formOfEducation || '').toLowerCase().trim();
+    return form && form !== 'очная';
+  }
+
   async function getStats() {
     var classes = await getAllClasses();
     var students = await getAllStudents();
     var archived = await getArchivedStudents();
-    var withUin = students.filter(function (s) { return s.uin && s.uin !== '-' && s.uin !== ''; }).length;
-    return { classCount: classes.length, studentCount: students.length, withUin: withUin, archivedCount: archived.length };
+    var regular = students.filter(function (s) { return !isHomeschooler(s); });
+    var homeschoolers = students.filter(function (s) { return isHomeschooler(s); });
+    var withUin = regular.filter(function (s) { return s.uin && s.uin !== '-' && s.uin !== ''; }).length;
+    return {
+      classCount: classes.length,
+      studentCount: regular.length,
+      withUin: withUin,
+      archivedCount: archived.length,
+      homeschoolerCount: homeschoolers.length
+    };
+  }
+
+  async function getHomeschoolers() {
+    var students = await getAllStudents();
+    return students.filter(function (s) { return isHomeschooler(s); })
+      .sort(function (a, b) { return (a.fullName || '').localeCompare(b.fullName || '', 'ru'); });
   }
 
   window.GTOSchool = {
@@ -686,6 +708,9 @@
     staff: staffApi,
     parents: parentsApi,
     extra: extraApi,
+    /* Homeschoolers */
+    isHomeschooler: isHomeschooler,
+    getHomeschoolers: getHomeschoolers,
     /* Stats */
     getStats: getStats
   };

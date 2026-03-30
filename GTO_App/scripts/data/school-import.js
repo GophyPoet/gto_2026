@@ -235,9 +235,8 @@
       var nameVal = safeText(dataRow[cols.name]);
       if (!surname && !nameVal) continue;
 
-      /* Check form of education */
-      var form = cols.form >= 0 ? safeText(dataRow[cols.form]).toLowerCase().replace(/\s+/g, ' ') : '';
-      if (form && form !== 'очная') continue;
+      /* Form of education (keep all forms, not just 'очная') */
+      var form = cols.form >= 0 ? safeText(dataRow[cols.form]).replace(/\s+/g, ' ') : '';
 
       var patronymic = safeText(dataRow[cols.patronymic]);
       var className = safeText(dataRow[cols.className]);
@@ -257,6 +256,7 @@
       result.push({
         className: className,
         fullName: fullName,
+        formOfEducation: form,
         gender: normalizeGender(cols.gender >= 0 ? dataRow[cols.gender] : ''),
         birthDate: excelDateToISO(cols.birthDate >= 0 ? dataRow[cols.birthDate] : ''),
         documentType: cols.documentType >= 0 ? safeText(dataRow[cols.documentType]) : '',
