@@ -211,6 +211,7 @@
 
   /* Fixed extra tabs that show people from roster stores */
   const EXTRA_TABS = [
+    { key: '__homeschool', label: 'Домашники', store: null },
     { key: '__staff', label: 'Работники школы', store: 'staff' },
     { key: '__parents', label: 'Родители', store: 'parents' },
     { key: '__extra', label: 'Дополнительно', store: 'extra' }
@@ -371,10 +372,71 @@
     });
   }
 
+  function renderHomeschoolTab(state) {
+    var classes = state.analysis.school ? state.analysis.school.classes : [];
+    var homeClass = classes.find(function (c) { return c.name === 'Домашники'; });
+    var students = homeClass ? homeClass.students : [];
+    var selectedIds = new Set(state.selectedParticipants.map(function (p) { return p.id; }));
+    var searchValue = els.studentSearchInput.value.trim().toUpperCase();
+
+    var filtered = students.filter(function (s) {
+      return !searchValue || s.fullName.toUpperCase().includes(searchValue);
+    });
+
+    if (!filtered.length) {
+      els.studentsTableWrap.innerHTML = '<div class="empty-state">Нет учеников на домашнем обучении. Данные загружаются из файла АСУ РСО.</div>';
+      return;
+    }
+
+    var unselected = filtered.filter(function (s) { return !selectedIds.has(s.id); });
+
+    els.studentsTableWrap.innerHTML = `
+      ${unselected.length > 0 ? `<div class="standards-actions" style="margin-bottom:0.5rem"><button class="btn btn-secondary" id="addWholeClass" type="button">Добавить всех (${unselected.length})</button></div>` : ''}
+      <table>
+        <thead><tr><th>ФИО</th><th>Класс</th><th>Форма обучения</th><th>УИН</th><th>Действие</th></tr></thead>
+        <tbody>
+          ${filtered.map(function (s) { return `
+            <tr>
+              <td>${escapeHtml(s.fullName)}</td>
+              <td>${escapeHtml(s.className || '-')}</td>
+              <td>${escapeHtml(s.formOfEducation || '-')}</td>
+              <td>${escapeHtml(s.uin || '-')}</td>
+              <td>${selectedIds.has(s.id) ? 'Уже в заявке' : `<button class="btn btn-primary" data-add="${s.id}" type="button">Добавить</button>`}</td>
+            </tr>
+          `; }).join('')}
+        </tbody>
+      </table>
+    `;
+
+    var addAllBtn = document.getElementById('addWholeClass');
+    if (addAllBtn) {
+      addAllBtn.addEventListener('click', function () {
+        unselected.forEach(function (s) { appState.addParticipant(s); });
+        render();
+      });
+    }
+
+    els.studentsTableWrap.querySelectorAll('[data-add]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var student = students.find(function (s) { return s.id === btn.dataset.add; });
+        if (student) {
+          appState.addParticipant(student);
+          render();
+        }
+      });
+    });
+  }
+
   async function renderExtraTab(tabKey, state) {
     const tab = EXTRA_TABS.find((t) => t.key === tabKey);
     if (!tab || !window.GTOSchool) {
       els.studentsTableWrap.innerHTML = '<div class="empty-state">Данные недоступны.</div>';
+      return;
+    }
+
+    /* Special handling for Домашники tab — show from roster class objects */
+    if (tabKey === '__homeschool') {
+      renderHomeschoolTab(state);
       return;
     }
 
@@ -1326,6 +1388,7 @@
 
       var allStudents = [];
       var classObjects = [];
+      var homeschoolers = [];
 
       for (var i = 0; i < classes.length; i++) {
         var cls = classes[i];
@@ -1348,19 +1411,47 @@
             residenceHouse: s.residenceHouse || '',
             residenceBuilding: s.residenceBuilding || '',
             residenceApartment: s.residenceApartment || '',
+            formOfEducation: s.formOfEducation || '',
             source: 'roster'
           };
           return student;
         });
+
+        /* Separate regular students from homeschoolers */
+        var regularStudents = classStudents.filter(function (st) {
+          return !window.GTOSchool.isHomeschooler(st);
+        });
+        var homeStudents = classStudents.filter(function (st) {
+          return window.GTOSchool.isHomeschooler(st);
+        });
+
+        if (regularStudents.length > 0) {
+          classObjects.push({
+            name: cls.name,
+            originalName: cls.name,
+            students: regularStudents,
+            headers: ['ФИО', 'УИН'],
+            mapping: {},
+            issues: []
+          });
+        }
+        if (homeStudents.length > 0) {
+          homeschoolers = homeschoolers.concat(homeStudents);
+        }
+        allStudents = allStudents.concat(classStudents);
+      }
+
+      /* Add homeschoolers as a virtual class */
+      if (homeschoolers.length > 0) {
         classObjects.push({
-          name: cls.name,
-          originalName: cls.name,
-          students: classStudents,
+          name: 'Домашники',
+          originalName: 'Домашники',
+          students: homeschoolers,
           headers: ['ФИО', 'УИН'],
           mapping: {},
-          issues: []
+          issues: [],
+          isHomeschooler: true
         });
-        allStudents = allStudents.concat(classStudents);
       }
 
       /* Build fake ASU records from roster data (so buildGeneratedRows works) */
@@ -1420,6 +1511,7 @@
 
   /**
    * Sync already-selected participants with fresh data from the roster.
+   * Matches by ID first, then falls back to normalized FIO + className.
    * Updates UIN, gender, birthDate, document, address, etc. from the
    * latest roster so that edits made on the dashboard are reflected
    * immediately without re-selecting the participant.
@@ -1431,14 +1523,30 @@
       : [];
     if (!allStudents.length || !state.selectedParticipants.length) return;
 
+    /* Build lookup by ID */
     var rosterById = {};
     for (var i = 0; i < allStudents.length; i++) {
       rosterById[allStudents[i].id] = allStudents[i];
     }
 
+    /* Build lookup by normalized name + class for fallback matching */
+    var rosterByNameClass = {};
+    for (var i2 = 0; i2 < allStudents.length; i2++) {
+      var s = allStudents[i2];
+      var key = normalizer.normalizeFio(s.fullName) + '||' + (s.className || '').toUpperCase();
+      rosterByNameClass[key] = s;
+    }
+    /* Also index by name only (for cases where className might differ) */
+    var rosterByName = {};
+    for (var i3 = 0; i3 < allStudents.length; i3++) {
+      var s2 = allStudents[i3];
+      var nameKey = normalizer.normalizeFio(s2.fullName);
+      if (!rosterByName[nameKey]) rosterByName[nameKey] = s2;
+    }
+
     var changed = false;
     var syncFields = [
-      'fullName', 'uin', 'gender', 'birthDate', 'className',
+      'fullName', 'uin', 'gender', 'birthDate', 'className', 'formOfEducation',
       'documentType', 'documentSeries', 'documentNumber', 'snils',
       'residenceLocality', 'residenceStreetName', 'residenceStreetType',
       'residenceHouse', 'residenceBuilding', 'residenceApartment',
@@ -1447,8 +1555,29 @@
 
     for (var j = 0; j < state.selectedParticipants.length; j++) {
       var p = state.selectedParticipants[j];
+
+      /* Try match by ID first, then by name+class, then by name only */
       var fresh = rosterById[p.id];
+      if (!fresh) {
+        var nKey = normalizer.normalizeFio(p.fullName) + '||' + (p.className || '').toUpperCase();
+        fresh = rosterByNameClass[nKey];
+      }
+      if (!fresh) {
+        fresh = rosterByName[normalizer.normalizeFio(p.fullName)];
+      }
       if (!fresh) continue;
+
+      /* If matched by name but IDs differ, update ID to roster ID
+         and migrate standards selections to the new ID */
+      if (fresh.id !== p.id) {
+        var oldId = p.id;
+        p.id = fresh.id;
+        if (state.standardsSelections && state.standardsSelections[oldId]) {
+          state.standardsSelections[fresh.id] = state.standardsSelections[oldId];
+          delete state.standardsSelections[oldId];
+        }
+        changed = true;
+      }
 
       for (var k = 0; k < syncFields.length; k++) {
         var field = syncFields[k];

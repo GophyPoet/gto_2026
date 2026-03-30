@@ -205,6 +205,7 @@
     html += '<div class="roster-stat"><span class="roster-stat-val">' + stats.classCount + '</span><span class="roster-stat-lbl">Классов</span></div>';
     html += '<div class="roster-stat"><span class="roster-stat-val">' + stats.studentCount + '</span><span class="roster-stat-lbl">Учеников</span></div>';
     html += '<div class="roster-stat"><span class="roster-stat-val">' + stats.withUin + '</span><span class="roster-stat-lbl">С УИН</span></div>';
+    html += '<div class="roster-stat"><span class="roster-stat-val">' + (stats.homeschoolerCount || 0) + '</span><span class="roster-stat-lbl">Домашники</span></div>';
     html += '<div class="roster-stat"><span class="roster-stat-val">' + stats.archivedCount + '</span><span class="roster-stat-lbl">В архиве</span></div>';
     html += '</div>';
 
@@ -621,8 +622,11 @@
     try {
       var buffer = await file.arrayBuffer();
       var incoming = importer.parseAsuStudentList(buffer);
-      if (!incoming.length) { alert('Не удалось распознать учеников в файле (форма обучения "очная").'); return; }
-      if (!confirm('Найдено ' + incoming.length + ' учеников (очная форма).\n\nБудет выполнена синхронизация:\n• Новые ученики — добавятся\n• Существующие — обновятся\n• Переведённые — переместятся в новый класс\n• Отсутствующие — уйдут в архив\n\nПродолжить?')) return;
+      if (!incoming.length) { alert('Не удалось распознать учеников в файле.'); return; }
+      var regularCount = incoming.filter(function (s) { var f = (s.formOfEducation || '').toLowerCase(); return !f || f === 'очная'; }).length;
+      var homeCount = incoming.length - regularCount;
+      var countMsg = 'Найдено ' + incoming.length + ' учеников (очная: ' + regularCount + ', домашники: ' + homeCount + ').';
+      if (!confirm(countMsg + '\n\nБудет выполнена синхронизация:\n• Новые ученики — добавятся\n• Существующие — обновятся\n• Переведённые — переместятся в новый класс\n• Отсутствующие — уйдут в архив\n\nПродолжить?')) return;
       var report = await school.syncFromAsu(incoming);
       selectedClassId = null;
       render();
