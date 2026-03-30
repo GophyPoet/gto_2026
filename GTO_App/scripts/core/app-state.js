@@ -4,7 +4,7 @@
 
   const emptyState = {
     currentStep: 'prepare',
-    meta: { schoolName: '', director: '', submissionDate: '', eventDate: '', workingFolderSelected: false },
+    meta: { schoolName: '', director: '', responsiblePerson: '', responsiblePhone: '', submissionDate: '', eventDate: '', workingFolderSelected: false },
     files: { school: null, template: null, asu: null },
     analysis: { school: null, asu: null, template: null, issues: [], structureReport: null },
     mappings: { school: {}, asu: {} },

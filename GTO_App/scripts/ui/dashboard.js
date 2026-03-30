@@ -26,6 +26,8 @@
   var GLOBAL_SETTINGS_KEY = 'gto-global-settings';
   var globalSchoolNameInput = document.getElementById('globalSchoolName');
   var globalDirectorInput = document.getElementById('globalDirector');
+  var globalResponsiblePersonInput = document.getElementById('globalResponsiblePerson');
+  var globalResponsiblePhoneInput = document.getElementById('globalResponsiblePhone');
 
   function loadGlobalSettings() {
     try {
@@ -51,6 +53,18 @@
       globalDirectorInput.value = settings.director || '';
       globalDirectorInput.addEventListener('change', function () {
         saveGlobalSettings({ director: globalDirectorInput.value.trim() });
+      });
+    }
+    if (globalResponsiblePersonInput) {
+      globalResponsiblePersonInput.value = settings.responsiblePerson || '';
+      globalResponsiblePersonInput.addEventListener('change', function () {
+        saveGlobalSettings({ responsiblePerson: globalResponsiblePersonInput.value.trim() });
+      });
+    }
+    if (globalResponsiblePhoneInput) {
+      globalResponsiblePhoneInput.value = settings.responsiblePhone || '';
+      globalResponsiblePhoneInput.addEventListener('change', function () {
+        saveGlobalSettings({ responsiblePhone: globalResponsiblePhoneInput.value.trim() });
       });
     }
   })();
