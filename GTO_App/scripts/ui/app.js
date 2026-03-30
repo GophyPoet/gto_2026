@@ -37,6 +37,7 @@
     reviewTableWrap: document.getElementById('reviewTableWrap'),
     downloadExcelBtn: document.getElementById('downloadExcelBtn'),
     downloadCardsBtn: document.getElementById('downloadCardsBtn'),
+    downloadMedBtn: document.getElementById('downloadMedBtn'),
     submissionDateExcelInput: document.getElementById('submissionDateExcelInput')
   };
 
@@ -1286,15 +1287,19 @@
     }
   }
 
-  /** Sync global settings (schoolName, director) into session meta */
+  /** Sync global settings (schoolName, director, responsiblePerson, responsiblePhone) into session meta */
   function syncGlobalSettingsToMeta() {
     var g = loadGlobalSettings();
     var meta = appState.getState().meta;
     if ((g.schoolName && g.schoolName !== meta.schoolName) ||
-        (g.director && g.director !== meta.director)) {
+        (g.director && g.director !== meta.director) ||
+        (g.responsiblePerson && g.responsiblePerson !== meta.responsiblePerson) ||
+        (g.responsiblePhone && g.responsiblePhone !== meta.responsiblePhone)) {
       appState.updateMeta({
         schoolName: g.schoolName || meta.schoolName || '',
-        director: g.director || meta.director || ''
+        director: g.director || meta.director || '',
+        responsiblePerson: g.responsiblePerson || meta.responsiblePerson || '',
+        responsiblePhone: g.responsiblePhone || meta.responsiblePhone || ''
       });
     }
   }
@@ -1369,6 +1374,9 @@
     if (els.downloadCardsBtn) {
       els.downloadCardsBtn.addEventListener('click', downloadCards);
     }
+    if (els.downloadMedBtn) {
+      els.downloadMedBtn.addEventListener('click', downloadMedRequest);
+    }
   }
 
   async function downloadCards() {
@@ -1402,6 +1410,42 @@
       if (els.downloadCardsBtn) {
         els.downloadCardsBtn.disabled = false;
         els.downloadCardsBtn.textContent = 'Скачать карточки-заявки на всех участников';
+      }
+    }
+  }
+
+  async function downloadMedRequest() {
+    try {
+      var state = appState.getState();
+      if (!state.selectedParticipants.length) {
+        alert('Нет выбранных участников.');
+        return;
+      }
+      var medExporter = window.GTOApp.medExporter;
+      if (!medExporter) {
+        alert('Модуль генерации медзаявки не загружен.');
+        return;
+      }
+      els.downloadMedBtn.disabled = true;
+      els.downloadMedBtn.textContent = 'Генерация…';
+      await medExporter.exportMedicalRequest(
+        {
+          schoolName: state.meta.schoolName || '',
+          director: state.meta.director || '',
+          responsiblePerson: state.meta.responsiblePerson || '',
+          responsiblePhone: state.meta.responsiblePhone || '',
+          submissionDate: state.meta.submissionDate || '',
+          eventDate: state.meta.eventDate || ''
+        },
+        state.selectedParticipants
+      );
+    } catch (error) {
+      logger.error(error);
+      alert(error.message || 'Не удалось сформировать медзаявку.');
+    } finally {
+      if (els.downloadMedBtn) {
+        els.downloadMedBtn.disabled = false;
+        els.downloadMedBtn.textContent = 'Скачать медзаявку ГТО';
       }
     }
   }
