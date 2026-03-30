@@ -231,6 +231,16 @@
   flex-direction: column;
   gap: 2px;
 }
+.roster-info-editable {
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 4px 6px;
+  transition: background 0.15s;
+}
+.roster-info-editable:hover {
+  background: var(--accent-soft);
+  outline: 1px dashed var(--accent);
+}
 .roster-info-label {
   font-size: 11px;
   font-weight: 700;

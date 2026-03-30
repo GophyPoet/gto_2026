@@ -18,11 +18,16 @@
   var activeFixedTab = null; // 'archive' | 'staff' | 'parents' | 'extra' | null
 
   var FIXED_TABS = [
+    { id: 'homeschool', label: 'Домашники' },
     { id: 'archive', label: 'Архив' },
     { id: 'staff', label: 'Работники школы' },
     { id: 'parents', label: 'Родители' },
     { id: 'extra', label: 'Дополнительно' }
   ];
+
+  /* Search/filter state */
+  var searchQuery = '';
+  var searchFilter = 'all'; // 'all' | 'missingUin' | 'hasUin' | 'homeschool'
 
   /* ---- Helpers ---- */
   function esc(v) {
@@ -161,9 +166,12 @@
   }
 
   /* ---- Info helpers ---- */
-  function infoField(label, value) {
+  function infoField(label, value, studentId, fieldKey) {
     var v = value || '-';
-    return '<div class="roster-info-field"><span class="roster-info-label">' + esc(label) + '</span><span class="roster-info-value">' + esc(v) + '</span></div>';
+    var editAttr = studentId && fieldKey ? ' data-edit-field="' + fieldKey + '" data-field-student="' + studentId + '"' : '';
+    var editClass = editAttr ? ' roster-info-editable' : '';
+    var editTitle = editAttr ? ' title="Нажмите для редактирования"' : '';
+    return '<div class="roster-info-field' + editClass + '"' + editAttr + editTitle + '><span class="roster-info-label">' + esc(label) + '</span><span class="roster-info-value">' + esc(v) + '</span></div>';
   }
   function formatBirthDate(iso) {
     if (!iso) return '';
@@ -217,6 +225,17 @@
     html += '<button class="btn btn-ghost btn-sm" id="rosterExportAll" type="button">Экспорт всех классов</button>';
     html += '</div>';
 
+    /* Search bar */
+    html += '<div class="roster-search-bar" style="display:flex;gap:8px;align-items:center;margin:10px 0;flex-wrap:wrap">';
+    html += '<input type="text" id="rosterSearchInput" placeholder="Поиск по ФИО, УИН…" value="' + esc(searchQuery) + '" style="flex:1;min-width:180px;padding:6px 10px;border:1px solid #ccc;border-radius:6px;font-size:0.9rem">';
+    html += '<select id="rosterFilterSelect" style="padding:6px 10px;border:1px solid #ccc;border-radius:6px;font-size:0.9rem">';
+    html += '<option value="all"' + (searchFilter === 'all' ? ' selected' : '') + '>Все</option>';
+    html += '<option value="missingUin"' + (searchFilter === 'missingUin' ? ' selected' : '') + '>Без УИН</option>';
+    html += '<option value="hasUin"' + (searchFilter === 'hasUin' ? ' selected' : '') + '>С УИН</option>';
+    html += '<option value="homeschool"' + (searchFilter === 'homeschool' ? ' selected' : '') + '>Домашники</option>';
+    html += '</select>';
+    html += '</div>';
+
     /* Class tabs + fixed tabs */
     html += '<div class="roster-class-tabs">';
 
@@ -240,7 +259,12 @@
     html += '</div>';
 
     /* Content area */
-    if (activeFixedTab === 'archive') {
+    if (searchQuery) {
+      /* Global search mode — search across all classes */
+      html += await renderGlobalSearch(classes);
+    } else if (activeFixedTab === 'homeschool') {
+      html += await renderHomeschoolList();
+    } else if (activeFixedTab === 'archive') {
       html += await renderArchive();
     } else if (activeFixedTab === 'staff') {
       html += await renderPersonList('staff', 'Работники школы', 'Добавьте работников школы для формирования заявок.');
@@ -305,15 +329,19 @@
         /* Expandable detail row (hidden by default) */
         html += '<tr class="roster-info-row" id="info-' + s.id + '" style="display:none">';
         html += '<td colspan="4"><div class="roster-info-grid">';
-        html += infoField('Пол', s.gender);
-        html += infoField('Дата рождения', formatBirthDate(s.birthDate));
-        html += infoField('Тип документа', s.documentType);
-        html += infoField('Серия', s.documentSeries);
-        html += infoField('Номер документа', s.documentNumber);
-        html += infoField('СНИЛС', s.snils);
-        html += infoField('Нас. пункт', s.residenceLocality);
-        html += infoField('Улица', buildStreet(s));
-        html += infoField('Дом', buildHouseAddr(s));
+        html += infoField('Пол', s.gender, s.id, 'gender');
+        html += infoField('Дата рождения', formatBirthDate(s.birthDate), s.id, 'birthDate');
+        html += infoField('Тип документа', s.documentType, s.id, 'documentType');
+        html += infoField('Серия', s.documentSeries, s.id, 'documentSeries');
+        html += infoField('Номер документа', s.documentNumber, s.id, 'documentNumber');
+        html += infoField('СНИЛС', s.snils, s.id, 'snils');
+        html += infoField('Нас. пункт', s.residenceLocality, s.id, 'residenceLocality');
+        html += infoField('Тип улицы', s.residenceStreetType, s.id, 'residenceStreetType');
+        html += infoField('Название улицы', s.residenceStreetName, s.id, 'residenceStreetName');
+        html += infoField('Дом', s.residenceHouse, s.id, 'residenceHouse');
+        html += infoField('Корпус', s.residenceBuilding, s.id, 'residenceBuilding');
+        html += infoField('Квартира', s.residenceApartment, s.id, 'residenceApartment');
+        html += infoField('Форма обучения', s.formOfEducation, s.id, 'formOfEducation');
         html += '</div></td></tr>';
       });
       html += '</tbody></table></div>';
@@ -419,11 +447,123 @@
     return html;
   }
 
+  /* ---- Homeschool list ---- */
+  async function renderHomeschoolList() {
+    var students = await school.getHomeschoolers();
+    var allClasses = await school.getAllClasses();
+    var html = '<div class="roster-detail">';
+    html += '<div class="roster-detail-header"><h4>Домашники</h4>';
+    html += '<span class="roster-detail-count">' + students.length + ' учен.</span></div>';
+
+    if (!students.length) {
+      html += '<div class="roster-empty">Нет учеников на домашнем обучении. Данные загружаются из файла АСУ РСО.</div>';
+    } else {
+      html += '<div class="roster-table-wrap"><table class="roster-table"><thead><tr>';
+      html += '<th>ФИО</th><th>Класс</th><th>Форма обучения</th><th>УИН</th>';
+      html += '</tr></thead><tbody>';
+      students.forEach(function (s) {
+        var cls = allClasses.find(function (c) { return c.id === s.classId; });
+        html += '<tr>';
+        html += '<td>' + esc(s.fullName) + '</td>';
+        html += '<td>' + esc(cls ? cls.name : '-') + '</td>';
+        html += '<td>' + esc(s.formOfEducation || '-') + '</td>';
+        html += '<td>' + esc(s.uin || '-') + '</td>';
+        html += '</tr>';
+      });
+      html += '</tbody></table></div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  /* ---- Global search across all classes ---- */
+  async function renderGlobalSearch(classes) {
+    var query = searchQuery.toUpperCase();
+    var allStudents = await school.getAllStudents();
+    var allClasses = await school.getAllClasses();
+    var classMap = {};
+    allClasses.forEach(function (c) { classMap[c.id] = c.name; });
+
+    var filtered = allStudents.filter(function (s) {
+      /* Text search */
+      var matchesQuery = !query
+        || (s.fullName || '').toUpperCase().includes(query)
+        || (s.uin || '').toUpperCase().includes(query);
+      if (!matchesQuery) return false;
+
+      /* Filter */
+      if (searchFilter === 'missingUin') return !s.uin || s.uin === '-' || s.uin === '';
+      if (searchFilter === 'hasUin') return s.uin && s.uin !== '-' && s.uin !== '';
+      if (searchFilter === 'homeschool') return school.isHomeschooler(s);
+      return true;
+    });
+
+    /* Sort by class name, then by full name */
+    filtered.sort(function (a, b) {
+      var ca = classMap[a.classId] || '';
+      var cb = classMap[b.classId] || '';
+      var cmp = ca.localeCompare(cb, 'ru');
+      return cmp !== 0 ? cmp : (a.fullName || '').localeCompare(b.fullName || '', 'ru');
+    });
+
+    var html = '<div class="roster-detail">';
+    html += '<div class="roster-detail-header"><h4>Результаты поиска</h4>';
+    html += '<span class="roster-detail-count">' + filtered.length + ' из ' + allStudents.length + '</span></div>';
+
+    if (!filtered.length) {
+      html += '<div class="roster-empty">Ничего не найдено по запросу «' + esc(searchQuery) + '».</div>';
+    } else {
+      html += '<div class="roster-table-wrap"><table class="roster-table"><thead><tr>';
+      html += '<th>ФИО</th><th>Класс</th><th>УИН</th><th>Пол</th><th>Дата рожд.</th>';
+      html += '</tr></thead><tbody>';
+      filtered.forEach(function (s) {
+        var clsName = classMap[s.classId] || '-';
+        var isHome = school.isHomeschooler(s);
+        html += '<tr' + (isHome ? ' style="background:#fff8e1"' : '') + '>';
+        html += '<td>' + esc(s.fullName) + (isHome ? ' <small style="color:#b08000">(дом.)</small>' : '') + '</td>';
+        html += '<td>' + esc(clsName) + '</td>';
+        html += '<td class="roster-uin-cell" data-edit-uin="' + s.id + '" title="Нажмите для редактирования УИН">' + esc(s.uin || '-') + '</td>';
+        html += '<td>' + esc(s.gender || '-') + '</td>';
+        html += '<td>' + esc(formatBirthDate(s.birthDate) || '-') + '</td>';
+        html += '</tr>';
+      });
+      html += '</tbody></table></div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
   /* ---- Event binding ---- */
   function bindEvents(classes) {
+    /* Search input — live search with debounce */
+    var searchInput = $('rosterSearchInput');
+    if (searchInput) {
+      var debounceTimer = null;
+      searchInput.addEventListener('input', function () {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(function () {
+          searchQuery = searchInput.value.trim();
+          render();
+          /* Re-focus and restore cursor after render */
+          var inp = $('rosterSearchInput');
+          if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+        }, 300);
+      });
+    }
+
+    /* Filter select */
+    var filterSelect = $('rosterFilterSelect');
+    if (filterSelect) {
+      filterSelect.addEventListener('change', function () {
+        searchFilter = filterSelect.value;
+        render();
+      });
+    }
+
     /* Class tab clicks */
     document.querySelectorAll('.roster-class-tab[data-cid]').forEach(function (btn) {
       btn.addEventListener('click', function () {
+        searchQuery = ''; // clear search when switching tabs
         selectedClassId = btn.dataset.cid;
         activeFixedTab = null;
         render();
@@ -433,6 +573,7 @@
     /* Fixed tab clicks */
     document.querySelectorAll('.roster-class-tab[data-fixed]').forEach(function (btn) {
       btn.addEventListener('click', function () {
+        searchQuery = ''; // clear search when switching tabs
         activeFixedTab = btn.dataset.fixed;
         selectedClassId = null;
         render();
@@ -485,6 +626,14 @@
       cell.addEventListener('click', function (e) {
         e.stopPropagation();
         handleEditUin(cell.dataset.editUin);
+      });
+    });
+
+    /* Quick-edit info field by clicking */
+    document.querySelectorAll('[data-edit-field]').forEach(function (el) {
+      el.addEventListener('click', function (e) {
+        e.stopPropagation();
+        handleEditField(el.dataset.fieldStudent, el.dataset.editField);
       });
     });
 
@@ -684,6 +833,60 @@
     if (uin === null || uin.trim() === (s.uin || '')) return;
     if (!confirm('Изменить УИН для ' + s.fullName + '?\n\nБыло: ' + (s.uin || '(пусто)') + '\nСтанет: ' + (uin.trim() || '(пусто)'))) return;
     await school.updateStudent(studentId, { uin: uin.trim() });
+    render();
+  }
+
+  /* Field labels and special handling for inline edit */
+  var FIELD_LABELS = {
+    gender: 'Пол',
+    birthDate: 'Дата рождения (ДД.ММ.ГГГГ)',
+    documentType: 'Тип документа',
+    documentSeries: 'Серия документа',
+    documentNumber: 'Номер документа',
+    snils: 'СНИЛС',
+    residenceLocality: 'Населённый пункт',
+    residenceStreetType: 'Тип улицы',
+    residenceStreetName: 'Название улицы',
+    residenceHouse: 'Дом',
+    residenceBuilding: 'Корпус',
+    residenceApartment: 'Квартира',
+    formOfEducation: 'Форма обучения'
+  };
+
+  function getFieldDisplayValue(student, field) {
+    if (field === 'birthDate') return formatBirthDate(student.birthDate) || '';
+    return student[field] || '';
+  }
+
+  function parseFieldInput(field, value) {
+    if (field === 'birthDate' && value) {
+      /* Accept DD.MM.YYYY and convert to ISO */
+      var parts = value.split('.');
+      if (parts.length === 3 && parts[0].length <= 2 && parts[1].length <= 2 && parts[2].length === 4) {
+        return parts[2] + '-' + parts[1].padStart(2, '0') + '-' + parts[0].padStart(2, '0');
+      }
+      /* Already ISO? */
+      if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+    }
+    return value;
+  }
+
+  async function handleEditField(studentId, field) {
+    var students = await school.getAllStudents();
+    var s = students.find(function (st) { return st.id === studentId; });
+    if (!s) return;
+    var label = FIELD_LABELS[field] || field;
+    var currentVal = getFieldDisplayValue(s, field);
+    var newVal = prompt(label + ' для ' + s.fullName + ':', currentVal);
+    if (newVal === null) return;
+    newVal = newVal.trim();
+    var storedVal = parseFieldInput(field, newVal);
+    var oldStored = s[field] || '';
+    if (storedVal === oldStored) return;
+    if (!confirm('Изменить «' + label + '» для ' + s.fullName + '?\n\nБыло: ' + (currentVal || '(пусто)') + '\nСтанет: ' + (newVal || '(пусто)'))) return;
+    var patch = {};
+    patch[field] = storedVal;
+    await school.updateStudent(studentId, patch);
     render();
   }
 
