@@ -416,10 +416,142 @@
   font-weight: 700;
 }
 
+/* ====== Toolbar: search + advanced filters + column picker ====== */
+.roster-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.roster-search-bar > #rosterSearchInput {
+  flex: 1 1 260px;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: white;
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.roster-search-bar > #rosterSearchInput:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.roster-search-bar > #rosterFilterSelect {
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: white;
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* ---- Dropdown wrapper ---- */
+.roster-filter-dropdown {
+  position: relative;
+  display: inline-block;
+}
+.roster-filter-dropdown > .btn.is-active {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  border-color: var(--accent);
+}
+.roster-filter-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  width: min(360px, 90vw);
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.roster-filter-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.roster-filter-panel-actions {
+  display: flex;
+  gap: 6px;
+}
+.roster-filter-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 4px 2px;
+}
+.roster-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+}
+.roster-filter-chip input[type="checkbox"] {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.roster-filter-chip:has(input:checked) {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+.roster-filter-panel-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+.roster-hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+.roster-columns-list { max-height: 300px; }
+
+/* ---- Inline-editable cells in main roster table ---- */
+.roster-editable-cell {
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+.roster-editable-cell:hover {
+  background: var(--accent-soft);
+  outline: 1px dashed var(--accent);
+}
+
+.roster-content-slot {
+  min-height: 80px;
+}
+
 /* ====== Responsive ====== */
 @media (max-width: 900px) {
   .roster-stats { flex-wrap: wrap; }
   .roster-detail-head { flex-direction: column; align-items: flex-start; }
+  .roster-filter-panel { right: auto; left: 0; }
 }
 @media (max-width: 600px) {
   .roster-stats { flex-direction: column; }
@@ -428,4 +560,9 @@
   .roster-actions .btn { width: 100%; }
   .roster-class-tabs { gap: 4px; }
   .roster-class-tab { padding: 6px 12px; font-size: 13px; }
+  .roster-search-bar { flex-direction: column; align-items: stretch; }
+  .roster-search-bar > * { width: 100%; }
+  .roster-filter-dropdown { width: 100%; }
+  .roster-filter-dropdown > .btn { width: 100%; }
+  .roster-filter-panel { width: 100%; right: 0; left: 0; }
 }

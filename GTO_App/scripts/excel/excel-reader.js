@@ -128,6 +128,17 @@
     return parsed ? new Date(parsed.y, parsed.m - 1, parsed.d) : null;
   }
 
+  /**
+   * Date-only safe: convert any workspace birth date input into a
+   * plain 'YYYY-MM-DD' string. Never uses Date.toISOString() so the
+   * calendar day is preserved in any timezone. Shared with school-import.js
+   * via window.GTODateUtils (loaded by both index.html and workspace.html).
+   */
+  function birthDateToISO(raw) {
+    if (window.GTODateUtils) return window.GTODateUtils.toISODate(raw);
+    return raw ? String(raw) : '';
+  }
+
   function safeResolvedIndex(resolved, field) {
     return resolved[field] && resolved[field].index !== null ? resolved[field].index : null;
   }
@@ -151,14 +162,10 @@
     const records = rows.map((row, index) => {
       const birthIdx = safeResolvedIndex(resolved, 'birthDate');
       const birthRaw = safeCell(row, birthIdx);
-      let birthDate = null;
-      if (birthRaw) {
-        if (!Number.isNaN(Number(birthRaw)) && Number(birthRaw) > 100) {
-          birthDate = excelSerialToDate(Number(birthRaw));
-        } else {
-          birthDate = utils.parseDateValue(birthRaw);
-        }
-      }
+      /* DATE-ONLY: delegate to GTODateUtils.toISODate so the calendar day
+         is preserved regardless of local timezone (fixes -1 day shift for
+         Russia and any TZ east of UTC). Never pipe through .toISOString(). */
+      const birthDateISO = birthDateToISO(birthRaw);
       return {
         id: `asu-${index}`,
         className: normalizer.normalizeClassName(safeCell(row, safeResolvedIndex(resolved, 'className'))),
@@ -171,7 +178,7 @@
           safeCell(row, safeResolvedIndex(resolved, 'patronymic'))
         ]),
         gender: normalizer.toGenderLabel(safeCell(row, safeResolvedIndex(resolved, 'gender'))),
-        birthDate: birthDate ? birthDate.toISOString() : '',
+        birthDate: birthDateISO,
         documentType: utils.safeText(safeCell(row, safeResolvedIndex(resolved, 'documentType'))),
         documentSeries: utils.safeText(safeCell(row, safeResolvedIndex(resolved, 'documentSeries'))),
         documentNumber: utils.safeText(safeCell(row, safeResolvedIndex(resolved, 'documentNumber'))),

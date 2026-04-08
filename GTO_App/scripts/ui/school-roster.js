@@ -13,11 +13,13 @@
   var importer = window.GTOSchoolImport;
   var exporter = window.GTOSchoolExport;
 
-  /* Current state */
+  /* ====== Current state ====== */
   var selectedClassId = null;
-  var activeFixedTab = null; // 'archive' | 'staff' | 'parents' | 'extra' | null
+  /* activeFixedTab: 'all' | 'homeschool' | 'archive' | 'staff' | 'parents' | 'extra' | null */
+  var activeFixedTab = null;
 
   var FIXED_TABS = [
+    { id: 'all', label: 'Все классы' },
     { id: 'homeschool', label: 'Домашники' },
     { id: 'archive', label: 'Архив' },
     { id: 'staff', label: 'Работники школы' },
@@ -25,9 +27,90 @@
     { id: 'extra', label: 'Дополнительно' }
   ];
 
-  /* Search/filter state */
+  /* Search / status-filter state (applied inside the current view). */
   var searchQuery = '';
-  var searchFilter = 'all'; // 'all' | 'missingUin' | 'hasUin' | 'homeschool'
+  var searchFilter = 'all'; /* 'all' | 'missingUin' | 'hasUin' | 'homeschool' */
+
+  /* Advanced multi-class selection. Non-empty Set switches the registry
+     into an aggregated multi-class view sorted alphabetically by ФИО. */
+  var multiSelectedClassIds = null; /* Set<string> | null */
+  var showClassPicker = false;      /* toolbar popup visibility */
+  var showColumnPicker = false;     /* toolbar popup visibility */
+
+  /* ====== Column configuration (persistent) ====== */
+  /**
+   * Full catalogue of columns the user can show in the registry table.
+   * `editable: true` means clicking the cell opens the inline edit flow
+   * (prompt + confirmation) wired through handleEditField / handleEditUin.
+   * `alwaysOn: true` columns cannot be hidden.
+   * `aggregatedOnly: true` columns only make sense in aggregated views.
+   */
+  var COLUMN_DEFS = [
+    { key: 'order',               label: '№',                width: '60px',  editable: false, alwaysOn: true  },
+    { key: 'fullName',            label: 'ФИО',              width: '',      editable: true,  alwaysOn: true  },
+    { key: 'uin',                 label: 'УИН',              width: '170px', editable: true,  alwaysOn: true  },
+    { key: 'className',           label: 'Класс',            width: '100px', editable: false, aggregatedOnly: true, alwaysOn: true },
+    { key: 'gender',              label: 'Пол',              width: '90px',  editable: true   },
+    { key: 'birthDate',           label: 'Дата рождения',    width: '130px', editable: true   },
+    { key: 'formOfEducation',     label: 'Форма обучения',   width: '140px', editable: true   },
+    { key: 'documentType',        label: 'Тип документа',    width: '140px', editable: true   },
+    { key: 'documentSeries',      label: 'Серия',            width: '90px',  editable: true   },
+    { key: 'documentNumber',      label: 'Номер документа',  width: '140px', editable: true   },
+    { key: 'snils',               label: 'СНИЛС',            width: '150px', editable: true   },
+    { key: 'residenceLocality',   label: 'Нас. пункт',       width: '140px', editable: true   },
+    { key: 'residenceStreetType', label: 'Тип улицы',        width: '110px', editable: true   },
+    { key: 'residenceStreetName', label: 'Улица',            width: '160px', editable: true   },
+    { key: 'residenceHouse',      label: 'Дом',              width: '80px',  editable: true   },
+    { key: 'residenceBuilding',   label: 'Корпус',           width: '80px',  editable: true   },
+    { key: 'residenceApartment',  label: 'Квартира',         width: '90px',  editable: true   },
+    { key: 'actions',             label: 'Действия',         width: '200px', editable: false, alwaysOn: true  }
+  ];
+
+  var COLUMNS_STORAGE_KEY = 'gto-roster-columns-v1';
+  var DEFAULT_VISIBLE_COLUMNS = ['order', 'fullName', 'uin', 'actions'];
+
+  function loadColumnSettings() {
+    try {
+      var raw = localStorage.getItem(COLUMNS_STORAGE_KEY);
+      if (!raw) return DEFAULT_VISIBLE_COLUMNS.slice();
+      var parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return DEFAULT_VISIBLE_COLUMNS.slice();
+      /* Keep only keys we know about */
+      var known = COLUMN_DEFS.map(function (c) { return c.key; });
+      var filtered = parsed.filter(function (k) { return known.indexOf(k) >= 0; });
+      /* Ensure always-on columns are present */
+      COLUMN_DEFS.forEach(function (def) {
+        if (def.alwaysOn && !def.aggregatedOnly && filtered.indexOf(def.key) < 0) filtered.push(def.key);
+      });
+      return filtered;
+    } catch (e) {
+      return DEFAULT_VISIBLE_COLUMNS.slice();
+    }
+  }
+  function saveColumnSettings(keys) {
+    try { localStorage.setItem(COLUMNS_STORAGE_KEY, JSON.stringify(keys)); } catch (e) { /* ignore */ }
+  }
+
+  var visibleColumnKeys = loadColumnSettings();
+
+  /**
+   * Resolve the list of COLUMN_DEFS that should be displayed in the
+   * requested view. `view` is 'class' (per-class detail) or 'aggregated'.
+   * Aggregated views always include the 'className' column.
+   */
+  function getActiveColumns(view) {
+    var set = {};
+    visibleColumnKeys.forEach(function (k) { set[k] = true; });
+    /* Always-on columns */
+    COLUMN_DEFS.forEach(function (def) {
+      if (def.alwaysOn && !def.aggregatedOnly) set[def.key] = true;
+      if (def.alwaysOn && def.aggregatedOnly && view === 'aggregated') set[def.key] = true;
+    });
+    return COLUMN_DEFS.filter(function (def) {
+      if (def.aggregatedOnly && view !== 'aggregated') return false;
+      return Boolean(set[def.key]);
+    });
+  }
 
   /* ---- Helpers ---- */
   function esc(v) {
@@ -173,11 +256,26 @@
     var editTitle = editAttr ? ' title="Нажмите для редактирования"' : '';
     return '<div class="roster-info-field' + editClass + '"' + editAttr + editTitle + '><span class="roster-info-label">' + esc(label) + '</span><span class="roster-info-value">' + esc(v) + '</span></div>';
   }
+  /**
+   * DATE-ONLY safe formatting. Delegates to GTODateUtils so we never
+   * pipe birth dates through Date.toISOString() (which caused 23.04 to
+   * become 22.04 in any positive-offset timezone).
+   */
   function formatBirthDate(iso) {
     if (!iso) return '';
-    var parts = iso.split('-');
+    if (window.GTODateUtils) return window.GTODateUtils.toDisplayDate(iso);
+    var parts = String(iso).split('-');
     if (parts.length === 3) return parts[2] + '.' + parts[1] + '.' + parts[0];
     return iso;
+  }
+
+  /**
+   * Convert a user-entered DD.MM.YYYY (or YYYY-MM-DD) into an ISO string
+   * for storage. DATE-ONLY safe.
+   */
+  function parseBirthDateInput(value) {
+    if (window.GTODateUtils) return window.GTODateUtils.toISODate(value);
+    return value || '';
   }
   function buildStreet(s) {
     var parts = [];
@@ -193,7 +291,19 @@
     return parts.join(', ') || '';
   }
 
-  /* ---- Main render ---- */
+  /* ====== Render ======
+   * The registry is split into a stable FRAME and a swappable CONTENT area:
+   *   frame   = stats + actions + toolbar (search, filters, column picker) + tabs
+   *   content = table / empty-state / aggregated view
+   *
+   * Search/filter/column changes call renderContent() only, which rewrites
+   * ONLY #rosterContent. The search input element is never destroyed, so
+   * focus and caret position are preserved on every keystroke. Previously
+   * a full render was triggered on every key, which remounted the input
+   * and stole focus — the reported bug.
+   */
+  var _cache = { classes: [], classMap: {} };
+
   async function render() {
     var container = $('schoolRoster');
     if (!container) return;
@@ -201,14 +311,23 @@
     var classes = await school.getAllClasses();
     var stats = await school.getStats();
 
-    /* Reset invalid selections */
+    /* Normalize state against current class list */
     if (selectedClassId && !classes.find(function (c) { return c.id === selectedClassId; })) {
       selectedClassId = null;
     }
+    if (multiSelectedClassIds) {
+      var known = new Set(classes.map(function (c) { return c.id; }));
+      var cleaned = new Set();
+      multiSelectedClassIds.forEach(function (id) { if (known.has(id)) cleaned.add(id); });
+      multiSelectedClassIds = cleaned.size ? cleaned : null;
+    }
+    _cache.classes = classes;
+    _cache.classMap = {};
+    classes.forEach(function (c) { _cache.classMap[c.id] = c; });
 
     var html = '';
 
-    /* Stats bar */
+    /* ---- Stats bar ---- */
     html += '<div class="roster-stats">';
     html += '<div class="roster-stat"><span class="roster-stat-val">' + stats.classCount + '</span><span class="roster-stat-lbl">Классов</span></div>';
     html += '<div class="roster-stat"><span class="roster-stat-val">' + stats.studentCount + '</span><span class="roster-stat-lbl">Учеников</span></div>';
@@ -217,7 +336,7 @@
     html += '<div class="roster-stat"><span class="roster-stat-val">' + stats.archivedCount + '</span><span class="roster-stat-lbl">В архиве</span></div>';
     html += '</div>';
 
-    /* Action bar */
+    /* ---- Action bar ---- */
     html += '<div class="roster-actions">';
     html += '<button class="btn btn-primary btn-sm" id="rosterAddClass" type="button">+ Новый класс</button>';
     html += '<label class="btn btn-secondary btn-sm file-label">Импорт школы (Excel)<input type="file" id="rosterImportSchool" accept=".xlsx,.xls" style="display:none"></label>';
@@ -225,63 +344,198 @@
     html += '<button class="btn btn-ghost btn-sm" id="rosterExportAll" type="button">Экспорт всех классов</button>';
     html += '</div>';
 
-    /* Search bar */
-    html += '<div class="roster-search-bar" style="display:flex;gap:8px;align-items:center;margin:10px 0;flex-wrap:wrap">';
-    html += '<input type="text" id="rosterSearchInput" placeholder="Поиск по ФИО, УИН…" value="' + esc(searchQuery) + '" style="flex:1;min-width:180px;padding:6px 10px;border:1px solid #ccc;border-radius:6px;font-size:0.9rem">';
-    html += '<select id="rosterFilterSelect" style="padding:6px 10px;border:1px solid #ccc;border-radius:6px;font-size:0.9rem">';
+    /* ---- Toolbar: search + advanced filter + column settings ---- */
+    html += buildToolbarHtml(classes);
+
+    /* ---- Tabs (dynamic classes + fixed category tabs) ---- */
+    html += '<div class="roster-class-tabs" id="rosterTabs">';
+    classes.forEach(function (cls) {
+      var active = (!activeFixedTab && !multiSelectedClassIds && cls.id === selectedClassId) ? ' is-active' : '';
+      html += '<button class="roster-class-tab' + active + '" data-cid="' + cls.id + '" type="button">' + esc(cls.name) + '</button>';
+    });
+    if (classes.length > 0) html += '<span class="roster-tab-sep"></span>';
+    FIXED_TABS.forEach(function (tab) {
+      var active = activeFixedTab === tab.id ? ' is-active is-fixed' : ' is-fixed';
+      html += '<button class="roster-class-tab' + active + '" data-fixed="' + tab.id + '" type="button">' + tab.label + '</button>';
+    });
+    html += '</div>';
+
+    /* ---- Content slot (rewritten on search / filter / column changes) ---- */
+    html += '<div id="rosterContent" class="roster-content-slot"></div>';
+
+    container.innerHTML = html;
+    bindFrameEvents(classes);
+    await renderContent();
+  }
+
+  /* Build the frame toolbar HTML (search + filter + column picker). */
+  function buildToolbarHtml(classes) {
+    var html = '';
+    html += '<div class="roster-search-bar" id="rosterToolbar">';
+    html += '<input type="text" id="rosterSearchInput" placeholder="Поиск по ФИО, УИН…" value="' + esc(searchQuery) + '" autocomplete="off">';
+
+    html += '<select id="rosterFilterSelect" title="Быстрый фильтр">';
     html += '<option value="all"' + (searchFilter === 'all' ? ' selected' : '') + '>Все</option>';
     html += '<option value="missingUin"' + (searchFilter === 'missingUin' ? ' selected' : '') + '>Без УИН</option>';
     html += '<option value="hasUin"' + (searchFilter === 'hasUin' ? ' selected' : '') + '>С УИН</option>';
     html += '<option value="homeschool"' + (searchFilter === 'homeschool' ? ' selected' : '') + '>Домашники</option>';
     html += '</select>';
-    html += '</div>';
 
-    /* Class tabs + fixed tabs */
-    html += '<div class="roster-class-tabs">';
-
-    /* Dynamic class tabs */
-    classes.forEach(function (cls) {
-      var active = (!activeFixedTab && cls.id === selectedClassId) ? ' is-active' : '';
-      html += '<button class="roster-class-tab' + active + '" data-cid="' + cls.id + '" type="button">' + esc(cls.name) + '</button>';
-    });
-
-    /* Separator */
-    if (classes.length > 0) {
-      html += '<span class="roster-tab-sep"></span>';
+    /* Advanced multi-class picker */
+    var multiCount = multiSelectedClassIds ? multiSelectedClassIds.size : 0;
+    var multiLabel = multiCount
+      ? 'Выбрано классов: ' + multiCount
+      : 'Расширенный фильтр классов';
+    html += '<div class="roster-filter-dropdown">';
+    html += '<button class="btn btn-ghost btn-sm' + (multiCount ? ' is-active' : '') + '" id="rosterFilterToggle" type="button" aria-expanded="' + (showClassPicker ? 'true' : 'false') + '">' + esc(multiLabel) + ' ▾</button>';
+    if (showClassPicker) {
+      html += '<div class="roster-filter-panel" id="rosterFilterPanel">';
+      html += '<div class="roster-filter-panel-head">';
+      html += '<strong>Фильтр по классам</strong>';
+      html += '<div class="roster-filter-panel-actions">';
+      html += '<button type="button" class="btn btn-ghost btn-sm" id="rosterFilterSelectAll">Выбрать все</button>';
+      html += '<button type="button" class="btn btn-ghost btn-sm" id="rosterFilterClear">Сбросить</button>';
+      html += '</div></div>';
+      html += '<div class="roster-filter-list">';
+      if (!classes.length) {
+        html += '<div class="roster-empty">Классы ещё не созданы.</div>';
+      }
+      classes.forEach(function (cls) {
+        var checked = multiSelectedClassIds && multiSelectedClassIds.has(cls.id) ? ' checked' : '';
+        html += '<label class="roster-filter-chip"><input type="checkbox" data-multi-class="' + cls.id + '"' + checked + '> ' + esc(cls.name) + '</label>';
+      });
+      html += '</div>';
+      html += '<div class="roster-filter-panel-foot">';
+      html += '<button type="button" class="btn btn-primary btn-sm" id="rosterFilterApply">Применить</button>';
+      html += '</div>';
+      html += '</div>';
     }
-
-    /* Fixed tabs */
-    FIXED_TABS.forEach(function (tab) {
-      var active = activeFixedTab === tab.id ? ' is-active is-fixed' : ' is-fixed';
-      html += '<button class="roster-class-tab' + active + '" data-fixed="' + tab.id + '" type="button">' + tab.label + '</button>';
-    });
-
     html += '</div>';
 
-    /* Content area */
-    if (searchQuery) {
-      /* Global search mode — search across all classes */
-      html += await renderGlobalSearch(classes);
+    /* Column settings dropdown */
+    html += '<div class="roster-filter-dropdown">';
+    html += '<button class="btn btn-ghost btn-sm" id="rosterColumnsToggle" type="button" aria-expanded="' + (showColumnPicker ? 'true' : 'false') + '" title="Настройки колонок таблицы">⚙ Колонки</button>';
+    if (showColumnPicker) {
+      html += '<div class="roster-filter-panel" id="rosterColumnsPanel">';
+      html += '<div class="roster-filter-panel-head">';
+      html += '<strong>Отображаемые колонки</strong>';
+      html += '<div class="roster-filter-panel-actions">';
+      html += '<button type="button" class="btn btn-ghost btn-sm" id="rosterColumnsReset">По умолчанию</button>';
+      html += '</div></div>';
+      html += '<div class="roster-filter-list roster-columns-list">';
+      COLUMN_DEFS.forEach(function (def) {
+        if (def.aggregatedOnly) return; /* aggregated-only auto-managed */
+        var checked = visibleColumnKeys.indexOf(def.key) >= 0 ? ' checked' : '';
+        var disabled = def.alwaysOn ? ' disabled' : '';
+        html += '<label class="roster-filter-chip"><input type="checkbox" data-col-key="' + def.key + '"' + checked + disabled + '> ' + esc(def.label) + '</label>';
+      });
+      html += '</div>';
+      html += '<div class="roster-filter-panel-foot">';
+      html += '<span class="roster-hint">Изменения применяются сразу и сохраняются в этом браузере.</span>';
+      html += '</div>';
+      html += '</div>';
+    }
+    html += '</div>';
+
+    html += '</div>'; /* /toolbar */
+    return html;
+  }
+
+  /* Content-only render (preserves the search input element and focus). */
+  async function renderContent() {
+    var slot = $('rosterContent');
+    if (!slot) return;
+    var classes = _cache.classes;
+
+    /* Decide which view to render: */
+    var html = '';
+    if (multiSelectedClassIds && multiSelectedClassIds.size > 0) {
+      html = await renderAggregatedView(classes, Array.from(multiSelectedClassIds), 'multi');
+    } else if (activeFixedTab === 'all') {
+      var allIds = classes.map(function (c) { return c.id; });
+      html = await renderAggregatedView(classes, allIds, 'all');
     } else if (activeFixedTab === 'homeschool') {
-      html += await renderHomeschoolList();
+      html = await renderHomeschoolList();
     } else if (activeFixedTab === 'archive') {
-      html += await renderArchive();
+      html = await renderArchive();
     } else if (activeFixedTab === 'staff') {
-      html += await renderPersonList('staff', 'Работники школы', 'Добавьте работников школы для формирования заявок.');
+      html = await renderPersonList('staff', 'Работники школы', 'Добавьте работников школы для формирования заявок.');
     } else if (activeFixedTab === 'parents') {
-      html += await renderPersonList('parents', 'Родители', 'Добавьте родителей для формирования заявок.');
+      html = await renderPersonList('parents', 'Родители', 'Добавьте родителей для формирования заявок.');
     } else if (activeFixedTab === 'extra') {
-      html += await renderPersonList('extra', 'Дополнительно', 'Дополнительный список участников.');
+      html = await renderPersonList('extra', 'Дополнительно', 'Дополнительный список участников.');
+    } else if (searchQuery) {
+      /* Global search fallback when no tab selected */
+      var allIds2 = classes.map(function (c) { return c.id; });
+      html = await renderAggregatedView(classes, allIds2, 'search');
     } else if (selectedClassId) {
-      html += await renderClassDetail(selectedClassId, classes);
+      html = await renderClassDetail(selectedClassId, classes);
     } else if (classes.length > 0) {
-      html += '<div class="roster-empty">Выберите класс для просмотра списка учеников.</div>';
+      html = '<div class="roster-empty">Выберите класс для просмотра списка учеников или нажмите «Все классы».</div>';
     } else {
-      html += '<div class="roster-empty">Список классов пуст. Импортируйте файл школы или создайте класс вручную.</div>';
+      html = '<div class="roster-empty">Список классов пуст. Импортируйте файл школы или создайте класс вручную.</div>';
     }
 
-    container.innerHTML = html;
-    bindEvents(classes);
+    slot.innerHTML = html;
+    bindContentEvents(classes);
+  }
+
+  /* ====== Column-driven row rendering ======
+   *
+   * Single source of truth used by both the class-detail view and the
+   * aggregated (all / multi-class) view. Editable cells carry `data-edit-field`
+   * attributes that the content-event binder wires to `handleEditField`,
+   * which runs a prompt + confirmation before saving — satisfying the
+   * "quick inline edit with confirmation" requirement.
+   */
+  function renderCellValue(col, s, classMap) {
+    if (col.key === 'order') return (s.classNumber || '-');
+    if (col.key === 'fullName') return esc(s.fullName || '');
+    if (col.key === 'uin') return esc(s.uin || '-');
+    if (col.key === 'className') {
+      var name = classMap && classMap[s.classId] ? classMap[s.classId].name : '';
+      return esc(name || '-');
+    }
+    if (col.key === 'birthDate') return esc(formatBirthDate(s.birthDate) || '-');
+    if (col.key === 'actions') {
+      var html = '';
+      html += '<button class="btn-icon-sm" data-edit-student="' + s.id + '" title="Редактировать">&#9998;</button>';
+      html += '<button class="btn-icon-sm" data-move-student="' + s.id + '" title="Перенести">&#8644;</button>';
+      html += '<button class="btn-icon-sm" data-archive-student="' + s.id + '" title="В архив">&#128451;</button>';
+      html += '<button class="btn-icon-sm btn-icon-danger" data-del-student="' + s.id + '" title="Удалить">&times;</button>';
+      return html;
+    }
+    return esc(s[col.key] || '-');
+  }
+
+  function renderRow(s, columns, classMap) {
+    var html = '<tr data-sid="' + esc(s.id) + '">';
+    columns.forEach(function (col) {
+      var cls = 'roster-cell-' + col.key;
+      var attrs = '';
+      if (col.editable && col.key !== 'actions' && col.key !== 'fullName') {
+        cls += ' roster-editable-cell';
+        if (col.key === 'uin') {
+          attrs = ' data-edit-uin="' + esc(s.id) + '" title="Нажмите, чтобы изменить УИН"';
+        } else {
+          attrs = ' data-edit-field="' + esc(col.key) + '" data-field-student="' + esc(s.id) + '" title="Нажмите, чтобы изменить"';
+        }
+      }
+      if (col.key === 'actions') cls += ' roster-row-actions';
+      html += '<td class="' + cls + '"' + attrs + '>' + renderCellValue(col, s, classMap) + '</td>';
+    });
+    html += '</tr>';
+    return html;
+  }
+
+  function renderTableHead(columns) {
+    var html = '<thead><tr>';
+    columns.forEach(function (col) {
+      var w = col.width ? ' style="width:' + col.width + '"' : '';
+      html += '<th' + w + '>' + esc(col.label) + '</th>';
+    });
+    html += '</tr></thead>';
+    return html;
   }
 
   /* ---- Class detail ---- */
@@ -289,6 +543,12 @@
     var cls = allClasses.find(function (c) { return c.id === classId; });
     if (!cls) return '';
     var students = await school.getStudentsByClass(classId);
+
+    /* Apply in-class status filter + search */
+    var q = (searchQuery || '').toUpperCase();
+    students = students.filter(function (s) { return matchesStatusFilter(s) && matchesSearch(s, q); });
+
+    var columns = getActiveColumns('class');
 
     var html = '<div class="roster-detail">';
 
@@ -307,42 +567,12 @@
     }
     html += '</div></div>';
 
-    /* Students table */
     if (students.length > 0) {
       html += '<div class="roster-table-wrap"><table class="roster-table">';
-      html += '<thead><tr><th style="width:60px">№</th><th>ФИО</th><th style="width:200px">УИН</th><th style="width:200px">Действия</th></tr></thead>';
+      html += renderTableHead(columns);
       html += '<tbody>';
       students.forEach(function (s) {
-        var hasInfo = s.gender || s.birthDate || s.documentNumber || s.residenceLocality;
-        html += '<tr data-sid="' + s.id + '">';
-        html += '<td>' + (s.classNumber || '-') + '</td>';
-        html += '<td>' + esc(s.fullName);
-        if (hasInfo) html += ' <span class="roster-info-badge" data-toggle-info="' + s.id + '" title="Показать доп. информацию">i</span>';
-        html += '</td>';
-        html += '<td class="roster-uin-cell" data-edit-uin="' + s.id + '" title="Нажмите для редактирования УИН">' + esc(s.uin || '-') + '</td>';
-        html += '<td class="roster-row-actions">';
-        html += '<button class="btn-icon-sm" data-edit-student="' + s.id + '" title="Редактировать">&#9998;</button>';
-        html += '<button class="btn-icon-sm" data-move-student="' + s.id + '" title="Перенести">&#8644;</button>';
-        html += '<button class="btn-icon-sm" data-archive-student="' + s.id + '" title="В архив">&#128451;</button>';
-        html += '<button class="btn-icon-sm btn-icon-danger" data-del-student="' + s.id + '" title="Удалить">&times;</button>';
-        html += '</td></tr>';
-        /* Expandable detail row (hidden by default) */
-        html += '<tr class="roster-info-row" id="info-' + s.id + '" style="display:none">';
-        html += '<td colspan="4"><div class="roster-info-grid">';
-        html += infoField('Пол', s.gender, s.id, 'gender');
-        html += infoField('Дата рождения', formatBirthDate(s.birthDate), s.id, 'birthDate');
-        html += infoField('Тип документа', s.documentType, s.id, 'documentType');
-        html += infoField('Серия', s.documentSeries, s.id, 'documentSeries');
-        html += infoField('Номер документа', s.documentNumber, s.id, 'documentNumber');
-        html += infoField('СНИЛС', s.snils, s.id, 'snils');
-        html += infoField('Нас. пункт', s.residenceLocality, s.id, 'residenceLocality');
-        html += infoField('Тип улицы', s.residenceStreetType, s.id, 'residenceStreetType');
-        html += infoField('Название улицы', s.residenceStreetName, s.id, 'residenceStreetName');
-        html += infoField('Дом', s.residenceHouse, s.id, 'residenceHouse');
-        html += infoField('Корпус', s.residenceBuilding, s.id, 'residenceBuilding');
-        html += infoField('Квартира', s.residenceApartment, s.id, 'residenceApartment');
-        html += infoField('Форма обучения', s.formOfEducation, s.id, 'formOfEducation');
-        html += '</div></td></tr>';
+        html += renderRow(s, columns, null);
       });
       html += '</tbody></table></div>';
 
@@ -362,11 +592,101 @@
         html += '</div>';
       }
     } else {
-      html += '<div class="roster-empty">В классе пока нет учеников.</div>';
+      html += '<div class="roster-empty">' + (searchQuery ? 'По запросу «' + esc(searchQuery) + '» ничего не найдено в этом классе.' : 'В классе пока нет учеников.') + '</div>';
     }
 
     html += '</div>';
     return html;
+  }
+
+  /* ---- Aggregated multi-class view (all classes, multi-select, or search) ---- */
+  async function renderAggregatedView(allClasses, classIds, mode) {
+    var classMap = {};
+    allClasses.forEach(function (c) { classMap[c.id] = c; });
+
+    var buckets = [];
+    for (var i = 0; i < classIds.length; i++) {
+      var list = await school.getStudentsByClass(classIds[i]);
+      for (var j = 0; j < list.length; j++) buckets.push(list[j]);
+    }
+
+    var q = (searchQuery || '').toUpperCase();
+    var filtered = buckets.filter(function (s) {
+      return matchesStatusFilter(s) && matchesSearch(s, q);
+    });
+
+    /* Alphabetical by ФИО (ru locale) — default sort for aggregated view. */
+    filtered.sort(function (a, b) {
+      return (a.fullName || '').localeCompare(b.fullName || '', 'ru');
+    });
+
+    /* Assign sequential row numbers for the aggregated view (override
+       classNumber which is class-local and would otherwise repeat). */
+    filtered.forEach(function (s, idx) { s._aggIndex = idx + 1; });
+
+    var columns = getActiveColumns('aggregated');
+    /* In aggregated views, the "order" column is the aggregated sequence. */
+    var renderAggCell = function (col, s) {
+      if (col.key === 'order') return s._aggIndex;
+      return renderCellValue(col, s, classMap);
+    };
+
+    var title = mode === 'all'
+      ? 'Все классы'
+      : mode === 'multi'
+        ? 'Выбранные классы (' + classIds.length + ')'
+        : 'Результаты поиска';
+
+    var html = '<div class="roster-detail">';
+    html += '<div class="roster-detail-head">';
+    html += '<div class="roster-detail-title">';
+    html += '<h3>' + esc(title) + '</h3>';
+    html += '<span class="roster-detail-count">' + filtered.length + ' учен.</span>';
+    html += '</div></div>';
+
+    if (!filtered.length) {
+      html += '<div class="roster-empty">' + (searchQuery ? 'Ничего не найдено по запросу «' + esc(searchQuery) + '».' : 'Нет учеников, соответствующих фильтру.') + '</div>';
+    } else {
+      html += '<div class="roster-table-wrap"><table class="roster-table">';
+      html += renderTableHead(columns);
+      html += '<tbody>';
+      filtered.forEach(function (s) {
+        var tr = '<tr data-sid="' + esc(s.id) + '">';
+        columns.forEach(function (col) {
+          var cls = 'roster-cell-' + col.key;
+          var attrs = '';
+          if (col.editable && col.key !== 'fullName' && col.key !== 'actions') {
+            cls += ' roster-editable-cell';
+            if (col.key === 'uin') {
+              attrs = ' data-edit-uin="' + esc(s.id) + '" title="Нажмите, чтобы изменить УИН"';
+            } else {
+              attrs = ' data-edit-field="' + esc(col.key) + '" data-field-student="' + esc(s.id) + '" title="Нажмите, чтобы изменить"';
+            }
+          }
+          if (col.key === 'actions') cls += ' roster-row-actions';
+          tr += '<td class="' + cls + '"' + attrs + '>' + renderAggCell(col, s) + '</td>';
+        });
+        tr += '</tr>';
+        html += tr;
+      });
+      html += '</tbody></table></div>';
+    }
+
+    html += '</div>';
+    return html;
+  }
+
+  /* ---- Filter helpers (shared by class / aggregated / homeschool views) ---- */
+  function matchesStatusFilter(s) {
+    if (searchFilter === 'missingUin') return !s.uin || s.uin === '-' || s.uin === '';
+    if (searchFilter === 'hasUin') return s.uin && s.uin !== '-' && s.uin !== '';
+    if (searchFilter === 'homeschool') return school.isHomeschooler(s);
+    return true;
+  }
+  function matchesSearch(s, q) {
+    if (!q) return true;
+    return (s.fullName || '').toUpperCase().includes(q)
+      || (s.uin || '').toUpperCase().includes(q);
   }
 
   /* ---- Archive view ---- */
@@ -447,28 +767,54 @@
     return html;
   }
 
-  /* ---- Homeschool list ---- */
+  /* ---- Homeschool list ----
+   * Uses the shared aggregated column system, sorted alphabetically,
+   * with the same inline-edit behavior as the rest of the registry. */
   async function renderHomeschoolList() {
     var students = await school.getHomeschoolers();
-    var allClasses = await school.getAllClasses();
+    var allClasses = _cache.classes;
+    var classMap = {};
+    allClasses.forEach(function (c) { classMap[c.id] = c; });
+
+    var q = (searchQuery || '').toUpperCase();
+    students = students.filter(function (s) { return matchesSearch(s, q); });
+    students.sort(function (a, b) { return (a.fullName || '').localeCompare(b.fullName || '', 'ru'); });
+    students.forEach(function (s, idx) { s._aggIndex = idx + 1; });
+
+    var columns = getActiveColumns('aggregated');
+
     var html = '<div class="roster-detail">';
-    html += '<div class="roster-detail-header"><h4>Домашники</h4>';
-    html += '<span class="roster-detail-count">' + students.length + ' учен.</span></div>';
+    html += '<div class="roster-detail-head">';
+    html += '<div class="roster-detail-title">';
+    html += '<h3>Домашники</h3>';
+    html += '<span class="roster-detail-count">' + students.length + ' учен.</span>';
+    html += '</div></div>';
 
     if (!students.length) {
       html += '<div class="roster-empty">Нет учеников на домашнем обучении. Данные загружаются из файла АСУ РСО.</div>';
     } else {
-      html += '<div class="roster-table-wrap"><table class="roster-table"><thead><tr>';
-      html += '<th>ФИО</th><th>Класс</th><th>Форма обучения</th><th>УИН</th>';
-      html += '</tr></thead><tbody>';
+      html += '<div class="roster-table-wrap"><table class="roster-table">';
+      html += renderTableHead(columns);
+      html += '<tbody>';
       students.forEach(function (s) {
-        var cls = allClasses.find(function (c) { return c.id === s.classId; });
-        html += '<tr>';
-        html += '<td>' + esc(s.fullName) + '</td>';
-        html += '<td>' + esc(cls ? cls.name : '-') + '</td>';
-        html += '<td>' + esc(s.formOfEducation || '-') + '</td>';
-        html += '<td>' + esc(s.uin || '-') + '</td>';
-        html += '</tr>';
+        var tr = '<tr data-sid="' + esc(s.id) + '">';
+        columns.forEach(function (col) {
+          var cls = 'roster-cell-' + col.key;
+          var attrs = '';
+          if (col.editable && col.key !== 'fullName' && col.key !== 'actions') {
+            cls += ' roster-editable-cell';
+            if (col.key === 'uin') {
+              attrs = ' data-edit-uin="' + esc(s.id) + '" title="Нажмите, чтобы изменить УИН"';
+            } else {
+              attrs = ' data-edit-field="' + esc(col.key) + '" data-field-student="' + esc(s.id) + '" title="Нажмите, чтобы изменить"';
+            }
+          }
+          if (col.key === 'actions') cls += ' roster-row-actions';
+          var val = (col.key === 'order') ? s._aggIndex : renderCellValue(col, s, classMap);
+          tr += '<td class="' + cls + '"' + attrs + '>' + val + '</td>';
+        });
+        tr += '</tr>';
+        html += tr;
       });
       html += '</tbody></table></div>';
     }
@@ -476,225 +822,253 @@
     return html;
   }
 
-  /* ---- Global search across all classes ---- */
-  async function renderGlobalSearch(classes) {
-    var query = searchQuery.toUpperCase();
-    var allStudents = await school.getAllStudents();
-    var allClasses = await school.getAllClasses();
-    var classMap = {};
-    allClasses.forEach(function (c) { classMap[c.id] = c.name; });
+  /* ====== Event binding ======
+   *
+   * FRAME events are attached ONCE per full render and never touch the
+   * search input element itself — they only read its current `.value` on
+   * user input and then call renderContent() to swap the content slot.
+   * This is the fix for the "focus is lost after each character" bug:
+   * previously the whole container was wiped on every keystroke, killing
+   * the active input element along with its caret position.
+   *
+   * CONTENT events are attached after renderContent() every time the
+   * content slot is rewritten, since those buttons/cells are recreated.
+   */
+  var _searchDebounceTimer = null;
 
-    var filtered = allStudents.filter(function (s) {
-      /* Text search */
-      var matchesQuery = !query
-        || (s.fullName || '').toUpperCase().includes(query)
-        || (s.uin || '').toUpperCase().includes(query);
-      if (!matchesQuery) return false;
-
-      /* Filter */
-      if (searchFilter === 'missingUin') return !s.uin || s.uin === '-' || s.uin === '';
-      if (searchFilter === 'hasUin') return s.uin && s.uin !== '-' && s.uin !== '';
-      if (searchFilter === 'homeschool') return school.isHomeschooler(s);
-      return true;
-    });
-
-    /* Sort by class name, then by full name */
-    filtered.sort(function (a, b) {
-      var ca = classMap[a.classId] || '';
-      var cb = classMap[b.classId] || '';
-      var cmp = ca.localeCompare(cb, 'ru');
-      return cmp !== 0 ? cmp : (a.fullName || '').localeCompare(b.fullName || '', 'ru');
-    });
-
-    var html = '<div class="roster-detail">';
-    html += '<div class="roster-detail-header"><h4>Результаты поиска</h4>';
-    html += '<span class="roster-detail-count">' + filtered.length + ' из ' + allStudents.length + '</span></div>';
-
-    if (!filtered.length) {
-      html += '<div class="roster-empty">Ничего не найдено по запросу «' + esc(searchQuery) + '».</div>';
-    } else {
-      html += '<div class="roster-table-wrap"><table class="roster-table"><thead><tr>';
-      html += '<th>ФИО</th><th>Класс</th><th>УИН</th><th>Пол</th><th>Дата рожд.</th>';
-      html += '</tr></thead><tbody>';
-      filtered.forEach(function (s) {
-        var clsName = classMap[s.classId] || '-';
-        var isHome = school.isHomeschooler(s);
-        html += '<tr' + (isHome ? ' style="background:#fff8e1"' : '') + '>';
-        html += '<td>' + esc(s.fullName) + (isHome ? ' <small style="color:#b08000">(дом.)</small>' : '') + '</td>';
-        html += '<td>' + esc(clsName) + '</td>';
-        html += '<td class="roster-uin-cell" data-edit-uin="' + s.id + '" title="Нажмите для редактирования УИН">' + esc(s.uin || '-') + '</td>';
-        html += '<td>' + esc(s.gender || '-') + '</td>';
-        html += '<td>' + esc(formatBirthDate(s.birthDate) || '-') + '</td>';
-        html += '</tr>';
-      });
-      html += '</tbody></table></div>';
-    }
-    html += '</div>';
-    return html;
-  }
-
-  /* ---- Event binding ---- */
-  function bindEvents(classes) {
-    /* Search input — live search with debounce */
+  function bindFrameEvents(classes) {
+    /* ---- Search input (focus-safe: no full re-render on keystroke) ---- */
     var searchInput = $('rosterSearchInput');
     if (searchInput) {
-      var debounceTimer = null;
+      /* Focus the input on mount so the user can start typing immediately
+         after clicking a tab or opening the page. */
       searchInput.addEventListener('input', function () {
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(function () {
-          searchQuery = searchInput.value.trim();
-          render();
-          /* Re-focus and restore cursor after render */
-          var inp = $('rosterSearchInput');
-          if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
-        }, 300);
+        clearTimeout(_searchDebounceTimer);
+        var val = searchInput.value;
+        _searchDebounceTimer = setTimeout(function () {
+          searchQuery = val.trim();
+          /* DO NOT call render() — only update the content slot.
+             The search input element is in the frame and is never
+             recreated, so focus and caret position are preserved. */
+          renderContent();
+        }, 180);
+      });
+      /* Clear on Escape */
+      searchInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') {
+          searchInput.value = '';
+          searchQuery = '';
+          renderContent();
+        }
       });
     }
 
-    /* Filter select */
+    /* ---- Status filter ---- */
     var filterSelect = $('rosterFilterSelect');
     if (filterSelect) {
       filterSelect.addEventListener('change', function () {
         searchFilter = filterSelect.value;
+        renderContent();
+      });
+    }
+
+    /* ---- Advanced multi-class filter panel ---- */
+    var filterToggle = $('rosterFilterToggle');
+    if (filterToggle) {
+      filterToggle.addEventListener('click', function () {
+        showClassPicker = !showClassPicker;
+        showColumnPicker = false;
+        render();
+      });
+    }
+    document.querySelectorAll('[data-multi-class]').forEach(function (cb) {
+      cb.addEventListener('change', function () {
+        var id = cb.dataset.multiClass;
+        if (!multiSelectedClassIds) multiSelectedClassIds = new Set();
+        if (cb.checked) multiSelectedClassIds.add(id);
+        else multiSelectedClassIds.delete(id);
+        if (multiSelectedClassIds.size === 0) multiSelectedClassIds = null;
+        /* Multi-select takes over the view */
+        selectedClassId = null;
+        activeFixedTab = null;
+        renderContent();
+        /* Also refresh tab highlight + toggle label */
+        updateFrameHighlights();
+      });
+    });
+    var filterSelectAll = $('rosterFilterSelectAll');
+    if (filterSelectAll) {
+      filterSelectAll.addEventListener('click', function () {
+        multiSelectedClassIds = new Set(classes.map(function (c) { return c.id; }));
+        selectedClassId = null;
+        activeFixedTab = null;
+        render();
+      });
+    }
+    var filterClear = $('rosterFilterClear');
+    if (filterClear) {
+      filterClear.addEventListener('click', function () {
+        multiSelectedClassIds = null;
+        render();
+      });
+    }
+    var filterApply = $('rosterFilterApply');
+    if (filterApply) {
+      filterApply.addEventListener('click', function () {
+        showClassPicker = false;
         render();
       });
     }
 
-    /* Class tab clicks */
+    /* ---- Column settings panel ---- */
+    var columnsToggle = $('rosterColumnsToggle');
+    if (columnsToggle) {
+      columnsToggle.addEventListener('click', function () {
+        showColumnPicker = !showColumnPicker;
+        showClassPicker = false;
+        render();
+      });
+    }
+    document.querySelectorAll('[data-col-key]').forEach(function (cb) {
+      cb.addEventListener('change', function () {
+        var key = cb.dataset.colKey;
+        if (cb.checked) {
+          if (visibleColumnKeys.indexOf(key) < 0) visibleColumnKeys.push(key);
+        } else {
+          visibleColumnKeys = visibleColumnKeys.filter(function (k) { return k !== key; });
+        }
+        saveColumnSettings(visibleColumnKeys);
+        renderContent();
+      });
+    });
+    var columnsReset = $('rosterColumnsReset');
+    if (columnsReset) {
+      columnsReset.addEventListener('click', function () {
+        visibleColumnKeys = DEFAULT_VISIBLE_COLUMNS.slice();
+        saveColumnSettings(visibleColumnKeys);
+        render();
+      });
+    }
+
+    /* ---- Class tabs ---- */
     document.querySelectorAll('.roster-class-tab[data-cid]').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        searchQuery = ''; // clear search when switching tabs
         selectedClassId = btn.dataset.cid;
         activeFixedTab = null;
-        render();
+        multiSelectedClassIds = null;
+        renderContent();
+        updateFrameHighlights();
       });
     });
 
-    /* Fixed tab clicks */
+    /* ---- Fixed tabs ---- */
     document.querySelectorAll('.roster-class-tab[data-fixed]').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        searchQuery = ''; // clear search when switching tabs
         activeFixedTab = btn.dataset.fixed;
         selectedClassId = null;
-        render();
+        multiSelectedClassIds = null;
+        renderContent();
+        updateFrameHighlights();
       });
     });
 
-    /* Add class */
+    /* ---- Action bar buttons ---- */
     var addClassBtn = $('rosterAddClass');
     if (addClassBtn) addClassBtn.addEventListener('click', handleAddClass);
-
-    /* Import school file */
     var importSchool = $('rosterImportSchool');
     if (importSchool) importSchool.addEventListener('change', handleImportSchool);
-
-    /* Import ASU */
     var importAsu = $('rosterImportAsu');
     if (importAsu) importAsu.addEventListener('change', handleImportAsu);
-
-    /* Export all */
     var exportAll = $('rosterExportAll');
     if (exportAll) exportAll.addEventListener('click', handleExportAll);
+  }
 
+  /* Update the visual active state on class/fixed tabs without rebuilding
+     the frame (keeps the search input focus intact). */
+  function updateFrameHighlights() {
+    document.querySelectorAll('.roster-class-tab').forEach(function (btn) {
+      btn.classList.remove('is-active');
+    });
+    if (multiSelectedClassIds) return; /* multi-class view has no single active tab */
+    if (activeFixedTab) {
+      var tab = document.querySelector('.roster-class-tab[data-fixed="' + activeFixedTab + '"]');
+      if (tab) tab.classList.add('is-active');
+    } else if (selectedClassId) {
+      var ct = document.querySelector('.roster-class-tab[data-cid="' + selectedClassId + '"]');
+      if (ct) ct.classList.add('is-active');
+    }
+  }
+
+  function bindContentEvents(classes) {
     /* Rename class */
     document.querySelectorAll('[data-rename]').forEach(function (btn) {
       btn.addEventListener('click', function () { handleRenameClass(btn.dataset.rename); });
     });
-
     /* Delete class */
     document.querySelectorAll('[data-delete-class]').forEach(function (btn) {
       btn.addEventListener('click', function () { handleDeleteClass(btn.dataset.deleteClass); });
     });
-
     /* Export single class */
     document.querySelectorAll('[data-export-class]').forEach(function (btn) {
       btn.addEventListener('click', function () { handleExportClass(btn.dataset.exportClass); });
     });
-
     /* Add student */
     document.querySelectorAll('[data-add-student]').forEach(function (btn) {
       btn.addEventListener('click', function () { handleAddStudent(btn.dataset.addStudent); });
     });
-
     /* Edit student */
     document.querySelectorAll('[data-edit-student]').forEach(function (btn) {
-      btn.addEventListener('click', function () { handleEditStudent(btn.dataset.editStudent); });
+      btn.addEventListener('click', function (e) { e.stopPropagation(); handleEditStudent(btn.dataset.editStudent); });
     });
-
-    /* Quick-edit UIN by clicking the cell */
+    /* Quick-edit UIN */
     document.querySelectorAll('[data-edit-uin]').forEach(function (cell) {
       cell.addEventListener('click', function (e) {
+        if (e.target.closest('button')) return;
         e.stopPropagation();
         handleEditUin(cell.dataset.editUin);
       });
     });
-
-    /* Quick-edit info field by clicking */
+    /* Quick-edit any info field (confirmation inside handleEditField) */
     document.querySelectorAll('[data-edit-field]').forEach(function (el) {
       el.addEventListener('click', function (e) {
+        if (e.target.closest('button')) return;
         e.stopPropagation();
         handleEditField(el.dataset.fieldStudent, el.dataset.editField);
       });
     });
-
-    /* Toggle info row */
-    document.querySelectorAll('[data-toggle-info]').forEach(function (badge) {
-      badge.addEventListener('click', function (e) {
-        e.stopPropagation();
-        var infoRow = document.getElementById('info-' + badge.dataset.toggleInfo);
-        if (infoRow) {
-          var visible = infoRow.style.display !== 'none';
-          infoRow.style.display = visible ? 'none' : '';
-          badge.classList.toggle('is-open', !visible);
-        }
-      });
-    });
-
     /* Move student */
     document.querySelectorAll('[data-move-student]').forEach(function (btn) {
-      btn.addEventListener('click', function () { handleMoveStudent(btn.dataset.moveStudent, classes); });
+      btn.addEventListener('click', function (e) { e.stopPropagation(); handleMoveStudent(btn.dataset.moveStudent, classes); });
     });
-
     /* Archive student */
     document.querySelectorAll('[data-archive-student]').forEach(function (btn) {
-      btn.addEventListener('click', function () { handleArchiveStudent(btn.dataset.archiveStudent); });
+      btn.addEventListener('click', function (e) { e.stopPropagation(); handleArchiveStudent(btn.dataset.archiveStudent); });
     });
-
     /* Delete student */
     document.querySelectorAll('[data-del-student]').forEach(function (btn) {
-      btn.addEventListener('click', function () { handleDeleteStudent(btn.dataset.delStudent); });
+      btn.addEventListener('click', function (e) { e.stopPropagation(); handleDeleteStudent(btn.dataset.delStudent); });
     });
-
     /* Restore from archive */
     document.querySelectorAll('[data-restore]').forEach(function (btn) {
       btn.addEventListener('click', function () { handleRestoreStudent(btn.dataset.restore); });
     });
-
     /* Delete from archive permanently */
     document.querySelectorAll('[data-del-archived]').forEach(function (btn) {
       btn.addEventListener('click', function () { handleDeleteArchived(btn.dataset.delArchived); });
     });
-
-    /* Add person (staff/parents/extra) */
+    /* Add/edit/delete person (staff/parents/extra) */
     document.querySelectorAll('[data-add-person]').forEach(function (btn) {
       btn.addEventListener('click', function () { handleAddPerson(btn.dataset.addPerson); });
     });
-
-    /* Edit person */
     document.querySelectorAll('[data-edit-person]').forEach(function (btn) {
       btn.addEventListener('click', function () { handleEditPerson(btn.dataset.editPerson, btn.dataset.store); });
     });
-
-    /* Delete person */
     document.querySelectorAll('[data-del-person]').forEach(function (btn) {
       btn.addEventListener('click', function () { handleDeletePerson(btn.dataset.delPerson, btn.dataset.store); });
     });
-
-    /* Mass move */
+    /* Mass move / archive */
     var massMove = $('rosterMassMove');
     if (massMove) massMove.addEventListener('click', handleMassMove);
-
-    /* Mass archive */
     var massArchive = $('rosterMassArchive');
     if (massArchive) massArchive.addEventListener('click', handleMassArchive);
 
@@ -708,7 +1082,7 @@
       });
       document.querySelectorAll('.roster-table tbody tr').forEach(function (row) {
         row.addEventListener('click', function (e) {
-          if (e.target.closest('button') || e.target.closest('select') || e.target.closest('input')) return;
+          if (e.target.closest('button') || e.target.closest('select') || e.target.closest('input') || e.target.closest('.roster-editable-cell')) return;
           row.classList.toggle('is-selected');
         });
       });
@@ -860,13 +1234,8 @@
 
   function parseFieldInput(field, value) {
     if (field === 'birthDate' && value) {
-      /* Accept DD.MM.YYYY and convert to ISO */
-      var parts = value.split('.');
-      if (parts.length === 3 && parts[0].length <= 2 && parts[1].length <= 2 && parts[2].length === 4) {
-        return parts[2] + '-' + parts[1].padStart(2, '0') + '-' + parts[0].padStart(2, '0');
-      }
-      /* Already ISO? */
-      if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+      /* DATE-ONLY safe — accepts DD.MM.YYYY, YYYY-MM-DD, Excel serials etc. */
+      return parseBirthDateInput(value);
     }
     return value;
   }

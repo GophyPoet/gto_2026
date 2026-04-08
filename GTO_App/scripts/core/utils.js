@@ -14,31 +14,25 @@
     sortByText(items, selector) {
       return [...items].sort((left, right) => selector(left).localeCompare(selector(right), 'ru'));
     },
+    /**
+     * Parse any DATE-ONLY input → local Date at 00:00 (for day-by-day
+     * comparisons like age calculation). Delegates to GTODateUtils so
+     * the main app and workspace stay in lock-step on calendar logic
+     * and there is no -1 day shift under any timezone.
+     */
     parseDateValue(value) {
       if (!value) return null;
+      if (window.GTODateUtils) {
+        return window.GTODateUtils.isoToLocalDate(window.GTODateUtils.toISODate(value));
+      }
       if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
-      const str = String(value).trim();
-      /* Try dd.mm.yyyy or dd.mm.yy (Russian format) */
-      const ruMatch = str.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})$/);
-      if (ruMatch) {
-        let year = Number(ruMatch[3]);
-        if (year < 100) year += year > 50 ? 1900 : 2000;
-        const date = new Date(year, Number(ruMatch[2]) - 1, Number(ruMatch[1]));
-        return Number.isNaN(date.getTime()) ? null : date;
-      }
-      /* Try M/D/YY or M/D/YYYY (American format from Excel/ASU) */
-      const usMatch = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
-      if (usMatch) {
-        let year = Number(usMatch[3]);
-        if (year < 100) year += year > 50 ? 1900 : 2000;
-        const date = new Date(year, Number(usMatch[1]) - 1, Number(usMatch[2]));
-        return Number.isNaN(date.getTime()) ? null : date;
-      }
-      /* Try ISO and other formats via Date constructor */
-      const date = new Date(str);
-      return Number.isNaN(date.getTime()) ? null : date;
+      return null;
     },
+    /**
+     * DD.MM.YYYY display. DATE-ONLY safe via GTODateUtils.
+     */
     formatDate(value) {
+      if (window.GTODateUtils) return window.GTODateUtils.toDisplayDate(value);
       const date = utils.parseDateValue(value);
       if (!date) return '';
       const parts = new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }).formatToParts(date);
@@ -50,9 +44,19 @@
       if (!date) return '';
       return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }).format(date);
     },
+    /**
+     * Convert any DATE-ONLY input → 'YYYY-MM-DD' string suitable for
+     * an <input type="date"> element. This used to call
+     * `date.toISOString().slice(0, 10)` which shifted the day in any
+     * positive-offset timezone. Fixed by going through GTODateUtils.
+     */
     toInputDate(value) {
+      if (window.GTODateUtils) return window.GTODateUtils.toISODate(value);
       const date = utils.parseDateValue(value);
-      return date ? date.toISOString().slice(0, 10) : '';
+      if (!date) return '';
+      return date.getFullYear() + '-' +
+        String(date.getMonth() + 1).padStart(2, '0') + '-' +
+        String(date.getDate()).padStart(2, '0');
     },
     downloadBlob(blob, filename) {
       const link = document.createElement('a');
