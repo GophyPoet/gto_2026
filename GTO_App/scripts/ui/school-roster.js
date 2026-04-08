@@ -487,14 +487,57 @@
    * attributes that the content-event binder wires to `handleEditField`,
    * which runs a prompt + confirmation before saving — satisfying the
    * "quick inline edit with confirmation" requirement.
+   *
+   * Each data row is rendered as TWO <tr>s:
+   *   1. Main row (cells for the active columns + an "i" badge next to ФИО
+   *      when the student has data outside the visible columns).
+   *   2. Expandable info row (.roster-info-row) hidden by default. Its grid
+   *      contains all editable data fields that are NOT currently visible as
+   *      columns — so adding a column via the picker automatically removes
+   *      that field from the expanded info block.
    */
-  function renderCellValue(col, s, classMap) {
+
+  /* Columns that are candidates for the "extra info" popup: editable data
+     fields, not always-on, not aggregated-only, not actions. */
+  function getHiddenDataColumns() {
+    var visible = {};
+    visibleColumnKeys.forEach(function (k) { visible[k] = true; });
+    return COLUMN_DEFS.filter(function (def) {
+      if (def.alwaysOn) return false;
+      if (def.aggregatedOnly) return false;
+      if (def.key === 'actions') return false;
+      if (!def.editable) return false;
+      return !visible[def.key];
+    });
+  }
+
+  function getStudentFieldDisplayValue(s, key) {
+    if (key === 'birthDate') return formatBirthDate(s.birthDate) || '';
+    return s[key] || '';
+  }
+
+  /* Does this student have any value in at least one hidden data field?
+     Used to decide whether the "i" badge is shown. */
+  function hasHiddenInfo(s, hiddenCols) {
+    for (var i = 0; i < hiddenCols.length; i++) {
+      if (getStudentFieldDisplayValue(s, hiddenCols[i].key)) return true;
+    }
+    return false;
+  }
+
+  function renderCellValue(col, s, classMap, ctx) {
     if (col.key === 'order') return (s.classNumber || '-');
-    if (col.key === 'fullName') return esc(s.fullName || '');
+    if (col.key === 'fullName') {
+      var name = esc(s.fullName || '');
+      if (ctx && ctx.hiddenCols && ctx.hiddenCols.length && hasHiddenInfo(s, ctx.hiddenCols)) {
+        name += ' <span class="roster-info-badge" data-toggle-info="' + esc(s.id) + '" title="Показать доп. информацию">i</span>';
+      }
+      return name;
+    }
     if (col.key === 'uin') return esc(s.uin || '-');
     if (col.key === 'className') {
-      var name = classMap && classMap[s.classId] ? classMap[s.classId].name : '';
-      return esc(name || '-');
+      var cname = classMap && classMap[s.classId] ? classMap[s.classId].name : '';
+      return esc(cname || '-');
     }
     if (col.key === 'birthDate') return esc(formatBirthDate(s.birthDate) || '-');
     if (col.key === 'actions') {
@@ -508,7 +551,24 @@
     return esc(s[col.key] || '-');
   }
 
+  /* Render the hidden "extra info" row that follows every data row. */
+  function renderInfoRow(s, columns, hiddenCols) {
+    if (!hiddenCols || !hiddenCols.length) return '';
+    if (!hasHiddenInfo(s, hiddenCols)) return '';
+    var html = '<tr class="roster-info-row" id="info-' + esc(s.id) + '" style="display:none">';
+    html += '<td colspan="' + columns.length + '">';
+    html += '<div class="roster-info-grid">';
+    hiddenCols.forEach(function (col) {
+      var val = getStudentFieldDisplayValue(s, col.key);
+      html += infoField(col.label, val, s.id, col.key);
+    });
+    html += '</div></td></tr>';
+    return html;
+  }
+
   function renderRow(s, columns, classMap) {
+    var hiddenCols = getHiddenDataColumns();
+    var ctx = { hiddenCols: hiddenCols };
     var html = '<tr data-sid="' + esc(s.id) + '">';
     columns.forEach(function (col) {
       var cls = 'roster-cell-' + col.key;
@@ -522,9 +582,10 @@
         }
       }
       if (col.key === 'actions') cls += ' roster-row-actions';
-      html += '<td class="' + cls + '"' + attrs + '>' + renderCellValue(col, s, classMap) + '</td>';
+      html += '<td class="' + cls + '"' + attrs + '>' + renderCellValue(col, s, classMap, ctx) + '</td>';
     });
     html += '</tr>';
+    html += renderInfoRow(s, columns, hiddenCols);
     return html;
   }
 
@@ -625,10 +686,12 @@
     filtered.forEach(function (s, idx) { s._aggIndex = idx + 1; });
 
     var columns = getActiveColumns('aggregated');
+    var hiddenCols = getHiddenDataColumns();
+    var ctx = { hiddenCols: hiddenCols };
     /* In aggregated views, the "order" column is the aggregated sequence. */
     var renderAggCell = function (col, s) {
       if (col.key === 'order') return s._aggIndex;
-      return renderCellValue(col, s, classMap);
+      return renderCellValue(col, s, classMap, ctx);
     };
 
     var title = mode === 'all'
@@ -667,6 +730,7 @@
           tr += '<td class="' + cls + '"' + attrs + '>' + renderAggCell(col, s) + '</td>';
         });
         tr += '</tr>';
+        tr += renderInfoRow(s, columns, hiddenCols);
         html += tr;
       });
       html += '</tbody></table></div>';
@@ -782,6 +846,8 @@
     students.forEach(function (s, idx) { s._aggIndex = idx + 1; });
 
     var columns = getActiveColumns('aggregated');
+    var hiddenCols = getHiddenDataColumns();
+    var ctx = { hiddenCols: hiddenCols };
 
     var html = '<div class="roster-detail">';
     html += '<div class="roster-detail-head">';
@@ -810,10 +876,11 @@
             }
           }
           if (col.key === 'actions') cls += ' roster-row-actions';
-          var val = (col.key === 'order') ? s._aggIndex : renderCellValue(col, s, classMap);
+          var val = (col.key === 'order') ? s._aggIndex : renderCellValue(col, s, classMap, ctx);
           tr += '<td class="' + cls + '"' + attrs + '>' + val + '</td>';
         });
         tr += '</tr>';
+        tr += renderInfoRow(s, columns, hiddenCols);
         html += tr;
       });
       html += '</tbody></table></div>';
@@ -1036,6 +1103,20 @@
         handleEditField(el.dataset.fieldStudent, el.dataset.editField);
       });
     });
+    /* Toggle extra-info row ("i" badge next to ФИО). Shows fields that are
+       NOT currently visible as columns, so they disappear automatically as
+       the user adds columns via the column picker. */
+    document.querySelectorAll('[data-toggle-info]').forEach(function (badge) {
+      badge.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var sid = badge.dataset.toggleInfo;
+        var row = document.getElementById('info-' + sid);
+        if (!row) return;
+        var open = row.style.display !== 'none';
+        row.style.display = open ? 'none' : '';
+        badge.classList.toggle('is-open', !open);
+      });
+    });
     /* Move student */
     document.querySelectorAll('[data-move-student]').forEach(function (btn) {
       btn.addEventListener('click', function (e) { e.stopPropagation(); handleMoveStudent(btn.dataset.moveStudent, classes); });
@@ -1072,17 +1153,19 @@
     var massArchive = $('rosterMassArchive');
     if (massArchive) massArchive.addEventListener('click', handleMassArchive);
 
-    /* Select all checkbox + row toggle */
+    /* Select all checkbox + row toggle.
+       Only data rows (with data-sid) participate in selection, so the
+       expandable .roster-info-row is excluded automatically. */
     var selectAll = $('rosterSelectAll');
     if (selectAll) {
       selectAll.addEventListener('change', function () {
-        document.querySelectorAll('.roster-table tbody tr').forEach(function (row) {
+        document.querySelectorAll('.roster-table tbody tr[data-sid]').forEach(function (row) {
           row.classList.toggle('is-selected', selectAll.checked);
         });
       });
-      document.querySelectorAll('.roster-table tbody tr').forEach(function (row) {
+      document.querySelectorAll('.roster-table tbody tr[data-sid]').forEach(function (row) {
         row.addEventListener('click', function (e) {
-          if (e.target.closest('button') || e.target.closest('select') || e.target.closest('input') || e.target.closest('.roster-editable-cell')) return;
+          if (e.target.closest('button') || e.target.closest('select') || e.target.closest('input') || e.target.closest('.roster-editable-cell') || e.target.closest('.roster-info-badge')) return;
           row.classList.toggle('is-selected');
         });
       });
