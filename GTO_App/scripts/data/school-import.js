@@ -78,38 +78,18 @@
   }
 
   /**
-   * Parse Excel serial date number to ISO date string.
+   * Parse any supported date input → 'YYYY-MM-DD'.
+   *
+   * IMPORTANT: historically this helper constructed local-time Date objects
+   * and then called `.toISOString()` which shifted the day back by the
+   * timezone offset (e.g. Russia MSK+3 turned 23.04.2010 into 22.04.2010).
+   * We now delegate to the shared GTODateUtils which is date-only safe and
+   * used by BOTH the main app and workspace.
    */
   function excelDateToISO(raw) {
-    if (!raw) return '';
-    var s = safeText(raw);
-    if (!s) return '';
-    /* Excel serial number */
-    var num = Number(s);
-    if (!isNaN(num) && num > 100) {
-      var d = new Date((num - 25569) * 86400000);
-      return d.toISOString().slice(0, 10);
-    }
-    /* Try common date formats: M/D/YY, DD.MM.YYYY, YYYY-MM-DD */
-    var parts;
-    if (s.includes('/')) {
-      parts = s.split('/');
-      if (parts.length === 3) {
-        var y = parts[2].length === 2 ? '20' + parts[2] : parts[2];
-        var d2 = new Date(y, parseInt(parts[0], 10) - 1, parseInt(parts[1], 10));
-        if (!isNaN(d2.getTime())) return d2.toISOString().slice(0, 10);
-      }
-    }
-    if (s.includes('.')) {
-      parts = s.split('.');
-      if (parts.length === 3) {
-        var d3 = new Date(parts[2], parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
-        if (!isNaN(d3.getTime())) return d3.toISOString().slice(0, 10);
-      }
-    }
-    var d4 = new Date(s);
-    if (!isNaN(d4.getTime())) return d4.toISOString().slice(0, 10);
-    return s;
+    if (window.GTODateUtils) return window.GTODateUtils.toISODate(raw);
+    /* Fallback (should never trigger — date-utils.js is always loaded). */
+    return raw ? String(raw) : '';
   }
 
   /**

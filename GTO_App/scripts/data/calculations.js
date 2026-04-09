@@ -3,7 +3,13 @@
   const { utils } = window.GTOApp;
 
   const calculations = {
+    /**
+     * Calculate full years between birth and event dates. DATE-ONLY safe:
+     * delegates to GTODateUtils.calcAge so identical logic is used on the
+     * main app and in workspace, with no timezone-induced off-by-one.
+     */
     calculateAgeOnDate(birthDate, eventDate) {
+      if (window.GTODateUtils) return window.GTODateUtils.calcAge(birthDate, eventDate);
       const birth = utils.parseDateValue(birthDate);
       const event = utils.parseDateValue(eventDate);
       if (!birth || !event) return null;

@@ -186,10 +186,12 @@
 
   /* Create */
   els.createBtn.addEventListener('click', function () {
-    /* Default to today + 14 days */
+    /* Default to today + 14 days (DATE-ONLY safe, local calendar). */
     var d = new Date();
     d.setDate(d.getDate() + 14);
-    els.newEventDate.value = d.toISOString().slice(0, 10);
+    els.newEventDate.value = window.GTODateUtils
+      ? window.GTODateUtils.toISODate(d)
+      : d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
     els.createDialog.showModal();
   });
 
