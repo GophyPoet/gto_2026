@@ -118,6 +118,83 @@
   }
   function $(id) { return document.getElementById(id); }
 
+  /* ---- Custom confirm dialog ----
+   * We deliberately avoid window.confirm(): when repeated, browsers attach a
+   * "Don't show again" checkbox that, once ticked, permanently disables every
+   * future confirm() on the page — a foot-gun that silently broke all edit
+   * confirmations for the user.  This helper builds a simple <dialog> modal
+   * on demand with only Yes / No buttons and returns a Promise<boolean>.
+   *
+   * opts:
+   *   title          — dialog heading
+   *   bodyHtml       — inner HTML for the body (already escaped by caller)
+   *   confirmText    — label on the confirm button  (default "Да")
+   *   cancelText     — label on the cancel button   (default "Отмена")
+   *   confirmVariant — 'primary' | 'danger' (default 'primary')
+   */
+  var askConfirmDialog = null;
+  function askConfirm(opts) {
+    return new Promise(function (resolve) {
+      var title = (opts && opts.title) || 'Подтверждение';
+      var bodyHtml = (opts && opts.bodyHtml) || '';
+      var confirmText = (opts && opts.confirmText) || 'Да';
+      var cancelText = (opts && opts.cancelText) || 'Отмена';
+      var confirmVariant = (opts && opts.confirmVariant) === 'danger' ? 'btn-danger' : 'btn-primary';
+
+      /* Lazy-create the dialog element and keep it in the DOM. */
+      var dlg = askConfirmDialog;
+      if (!dlg) {
+        dlg = document.createElement('dialog');
+        dlg.className = 'dialog';
+        dlg.innerHTML =
+          '<div class="dialog-form">' +
+            '<div class="dialog-head">' +
+              '<h3 data-role="title"></h3>' +
+              '<button class="icon-btn" type="button" data-role="close">&times;</button>' +
+            '</div>' +
+            '<div class="dialog-body" data-role="body"></div>' +
+            '<div class="dialog-actions">' +
+              '<button class="btn btn-secondary" type="button" data-role="cancel"></button>' +
+              '<button class="btn btn-primary" type="button" data-role="confirm"></button>' +
+            '</div>' +
+          '</div>';
+        document.body.appendChild(dlg);
+        askConfirmDialog = dlg;
+      }
+
+      var titleEl = dlg.querySelector('[data-role="title"]') || dlg.querySelector('h3');
+      var bodyEl = dlg.querySelector('[data-role="body"]');
+      var confirmBtn = dlg.querySelector('[data-role="confirm"]');
+      var cancelBtn = dlg.querySelector('[data-role="cancel"]');
+      var closeBtn = dlg.querySelector('[data-role="close"]');
+
+      titleEl.textContent = title;
+      bodyEl.innerHTML = bodyHtml;
+      confirmBtn.textContent = confirmText;
+      confirmBtn.className = 'btn ' + confirmVariant;
+      cancelBtn.textContent = cancelText;
+
+      function cleanup(result) {
+        confirmBtn.onclick = null;
+        cancelBtn.onclick = null;
+        closeBtn.onclick = null;
+        dlg.onclose = null;
+        dlg.onkeydown = null;
+        try { dlg.close(); } catch (e) { /* already closed */ }
+        resolve(result);
+      }
+
+      confirmBtn.onclick = function () { cleanup(true); };
+      cancelBtn.onclick = function () { cleanup(false); };
+      closeBtn.onclick = function () { cleanup(false); };
+      /* Pressing Esc or closing via backdrop resolves to false. */
+      dlg.onclose = function () { resolve(false); };
+
+      if (typeof dlg.showModal === 'function') dlg.showModal();
+      else dlg.setAttribute('open', '');
+    });
+  }
+
   /* ---- Report dialog ---- */
   function showReport(title, report) {
     var dlg = $('reportDialog');
@@ -1191,7 +1268,13 @@
   }
 
   async function handleDeleteClass(id) {
-    if (!confirm('Удалить этот класс? Это действие нельзя отменить.')) return;
+    var ok = await askConfirm({
+      title: 'Удалить класс?',
+      bodyHtml: '<p>Это действие нельзя отменить.</p>',
+      confirmText: 'Удалить',
+      confirmVariant: 'danger'
+    });
+    if (!ok) return;
     try {
       await school.deleteClass(id);
       if (selectedClassId === id) selectedClassId = null;
@@ -1211,7 +1294,16 @@
       var data = importer.parseSchoolFile(buffer);
       if (!data.length) { alert('Не удалось распознать классы в файле.'); return; }
       var totalStudents = data.reduce(function (s, c) { return s + c.students.length; }, 0);
-      if (!confirm('Найдено ' + data.length + ' классов, ' + totalStudents + ' учеников.\n\nВНИМАНИЕ: текущий список школы будет полностью заменён данными из файла.\n\nПродолжить?')) return;
+      var okImport = await askConfirm({
+        title: 'Заменить весь список школы?',
+        bodyHtml:
+          '<p>Найдено <b>' + data.length + '</b> классов, <b>' + totalStudents + '</b> учеников.</p>' +
+          '<p><b>ВНИМАНИЕ:</b> текущий список школы будет полностью заменён данными из файла.</p>' +
+          '<p>Продолжить?</p>',
+        confirmText: 'Заменить',
+        confirmVariant: 'danger'
+      });
+      if (!okImport) return;
       await school.importFullReplace(data);
       selectedClassId = null;
       render();
@@ -1232,7 +1324,20 @@
       var regularCount = incoming.filter(function (s) { var f = (s.formOfEducation || '').toLowerCase(); return !f || f === 'очная'; }).length;
       var homeCount = incoming.length - regularCount;
       var countMsg = 'Найдено ' + incoming.length + ' учеников (очная: ' + regularCount + ', домашники: ' + homeCount + ').';
-      if (!confirm(countMsg + '\n\nБудет выполнена синхронизация:\n• Новые ученики — добавятся\n• Существующие — обновятся\n• Переведённые — переместятся в новый класс\n• Отсутствующие — уйдут в архив\n\nПродолжить?')) return;
+      var okSync = await askConfirm({
+        title: 'Синхронизировать с АСУ РСО?',
+        bodyHtml:
+          '<p>' + esc(countMsg) + '</p>' +
+          '<p>Будет выполнена синхронизация:</p>' +
+          '<ul>' +
+            '<li>Новые ученики — добавятся</li>' +
+            '<li>Существующие — обновятся</li>' +
+            '<li>Переведённые — переместятся в новый класс</li>' +
+            '<li>Отсутствующие — уйдут в архив</li>' +
+          '</ul>',
+        confirmText: 'Синхронизировать'
+      });
+      if (!okSync) return;
       var report = await school.syncFromAsu(incoming);
       selectedClassId = null;
       render();
@@ -1288,7 +1393,15 @@
     if (!s) return;
     var uin = prompt('УИН для ' + s.fullName + ':', s.uin || '');
     if (uin === null || uin.trim() === (s.uin || '')) return;
-    if (!confirm('Изменить УИН для ' + s.fullName + '?\n\nБыло: ' + (s.uin || '(пусто)') + '\nСтанет: ' + (uin.trim() || '(пусто)'))) return;
+    var okUin = await askConfirm({
+      title: 'Изменить УИН?',
+      bodyHtml:
+        '<p>Ученик: <b>' + esc(s.fullName) + '</b></p>' +
+        '<p>Было: <b>' + esc(s.uin || '(пусто)') + '</b></p>' +
+        '<p>Станет: <b>' + esc(uin.trim() || '(пусто)') + '</b></p>',
+      confirmText: 'Изменить'
+    });
+    if (!okUin) return;
     await school.updateStudent(studentId, { uin: uin.trim() });
     render();
   }
@@ -1335,7 +1448,15 @@
     var storedVal = parseFieldInput(field, newVal);
     var oldStored = s[field] || '';
     if (storedVal === oldStored) return;
-    if (!confirm('Изменить «' + label + '» для ' + s.fullName + '?\n\nБыло: ' + (currentVal || '(пусто)') + '\nСтанет: ' + (newVal || '(пусто)'))) return;
+    var okField = await askConfirm({
+      title: 'Изменить «' + label + '»?',
+      bodyHtml:
+        '<p>Ученик: <b>' + esc(s.fullName) + '</b></p>' +
+        '<p>Было: <b>' + esc(currentVal || '(пусто)') + '</b></p>' +
+        '<p>Станет: <b>' + esc(newVal || '(пусто)') + '</b></p>',
+      confirmText: 'Изменить'
+    });
+    if (!okField) return;
     var patch = {};
     patch[field] = storedVal;
     await school.updateStudent(studentId, patch);
@@ -1378,7 +1499,13 @@
   }
 
   async function handleDeleteStudent(studentId) {
-    if (!confirm('Удалить этого ученика навсегда? Если хотите сохранить данные, лучше переместите в архив.')) return;
+    var ok = await askConfirm({
+      title: 'Удалить ученика?',
+      bodyHtml: '<p>Удалить этого ученика навсегда?</p><p>Если хотите сохранить данные, лучше переместите в архив.</p>',
+      confirmText: 'Удалить',
+      confirmVariant: 'danger'
+    });
+    if (!ok) return;
     await school.deleteStudent(studentId);
     if (selectedClassId) await school.renumberClass(selectedClassId);
     render();
@@ -1389,7 +1516,12 @@
     if (!target || !target.value) { alert('Выберите целевой класс.'); return; }
     var ids = getSelectedIds();
     if (!ids.length) { alert('Выберите учеников (кликните по строкам).'); return; }
-    if (!confirm('Переместить ' + ids.length + ' учеников?')) return;
+    var okMove = await askConfirm({
+      title: 'Переместить учеников?',
+      bodyHtml: '<p>Переместить <b>' + ids.length + '</b> учеников?</p>',
+      confirmText: 'Переместить'
+    });
+    if (!okMove) return;
     await school.moveStudents(ids, target.value);
     await school.renumberClass(target.value);
     if (selectedClassId) await school.renumberClass(selectedClassId);
@@ -1399,7 +1531,12 @@
   async function handleMassArchive() {
     var ids = getSelectedIds();
     if (!ids.length) { alert('Выберите учеников (кликните по строкам).'); return; }
-    if (!confirm('Переместить ' + ids.length + ' учеников в архив?')) return;
+    var okArchive = await askConfirm({
+      title: 'Переместить в архив?',
+      bodyHtml: '<p>Переместить <b>' + ids.length + '</b> учеников в архив?</p>',
+      confirmText: 'В архив'
+    });
+    if (!okArchive) return;
     await school.archiveStudents(ids, 'Массовая архивация');
     if (selectedClassId) await school.renumberClass(selectedClassId);
     render();
@@ -1426,7 +1563,13 @@
   }
 
   async function handleDeleteArchived(id) {
-    if (!confirm('Удалить запись из архива навсегда?')) return;
+    var ok = await askConfirm({
+      title: 'Удалить из архива?',
+      bodyHtml: '<p>Удалить запись из архива навсегда?</p>',
+      confirmText: 'Удалить',
+      confirmVariant: 'danger'
+    });
+    if (!ok) return;
     await school.deleteArchivedStudent(id);
     render();
   }
@@ -1476,7 +1619,13 @@
   }
 
   async function handleDeletePerson(personId, storeName) {
-    if (!confirm('Удалить эту запись?')) return;
+    var ok = await askConfirm({
+      title: 'Удалить запись?',
+      bodyHtml: '<p>Удалить эту запись?</p>',
+      confirmText: 'Удалить',
+      confirmVariant: 'danger'
+    });
+    if (!ok) return;
     await school[storeName].delete(personId);
     render();
   }
