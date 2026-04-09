@@ -181,6 +181,11 @@
       residenceHouse: (data.residenceHouse || '').trim(),
       residenceBuilding: (data.residenceBuilding || '').trim(),
       residenceApartment: (data.residenceApartment || '').trim(),
+      /* Per-field manual-edit flags.  Keys present here mean the user
+         edited that field by hand; syncFromAsu will NOT overwrite those
+         fields on subsequent imports (the only exception is classId /
+         classNumber, which always follow the АСУ РСО source). */
+      manualFields: (data.manualFields && typeof data.manualFields === 'object') ? data.manualFields : {},
       createdAt: now,
       updatedAt: now
     };
@@ -190,17 +195,36 @@
     return student;
   }
 
-  async function updateStudent(id, patch) {
+  /**
+   * Fields that are NEVER marked as manual even when updated by the user:
+   * classId / classNumber follow the АСУ РСО source unconditionally.
+   */
+  var NON_MANUAL_FIELDS = { classId: true, classNumber: true };
+
+  /**
+   * updateStudent(id, patch, options)
+   *   options.markManual — when true, every field in `patch` that is NOT
+   *     in NON_MANUAL_FIELDS is recorded in student.manualFields.  This
+   *     flag is set by the UI when the user edits a field by hand; the
+   *     АСУ РСО sync reads it to skip overwriting protected fields.
+   */
+  async function updateStudent(id, patch, options) {
     await init();
+    var markManual = !!(options && options.markManual);
     var t = tx(['students'], 'readwrite');
     var store = t.objectStore('students');
     var s = await reqP(store.get(id));
     if (!s) throw new Error('Ученик не найден');
+    if (!s.manualFields || typeof s.manualFields !== 'object') s.manualFields = {};
     if (patch.fullName !== undefined) {
       s.fullName = patch.fullName.trim();
       s.normalizedName = normalizeName(patch.fullName);
+      if (markManual) s.manualFields.fullName = true;
     }
-    if (patch.uin !== undefined) s.uin = patch.uin.trim();
+    if (patch.uin !== undefined) {
+      s.uin = patch.uin.trim();
+      if (markManual) s.manualFields.uin = true;
+    }
     if (patch.classId !== undefined) s.classId = patch.classId;
     if (patch.classNumber !== undefined) s.classNumber = patch.classNumber;
     /* ASU extended fields */
@@ -208,7 +232,10 @@
       'snils', 'residenceLocality', 'residenceStreetName', 'residenceStreetType',
       'residenceHouse', 'residenceBuilding', 'residenceApartment'];
     extFields.forEach(function (f) {
-      if (patch[f] !== undefined) s[f] = typeof patch[f] === 'string' ? patch[f].trim() : patch[f];
+      if (patch[f] !== undefined) {
+        s[f] = typeof patch[f] === 'string' ? patch[f].trim() : patch[f];
+        if (markManual && !NON_MANUAL_FIELDS[f]) s.manualFields[f] = true;
+      }
     });
     s.updatedAt = new Date().toISOString();
     store.put(s);
@@ -327,12 +354,77 @@
           residenceHouse: extData.residenceHouse,
           residenceBuilding: extData.residenceBuilding,
           residenceApartment: extData.residenceApartment,
+          /* Preserve per-field manual-edit flags from previous data. */
+          manualFields: (prev.manualFields && typeof prev.manualFields === 'object') ? prev.manualFields : {},
           createdAt: now,
           updatedAt: now
         });
       });
     });
     await txDone(t);
+  }
+
+  /**
+   * List of extended АСУ РСО student fields that can be per-field
+   * locked by manual edit.  Kept in module scope so both `syncFromAsu`
+   * and the pure helper `buildAsuUpdatePatch` reference the same list.
+   */
+  var ASU_EXT_FIELDS = ['gender', 'birthDate', 'formOfEducation', 'documentType', 'documentSeries', 'documentNumber',
+    'snils', 'residenceLocality', 'residenceStreetName', 'residenceStreetType',
+    'residenceHouse', 'residenceBuilding', 'residenceApartment'];
+
+  /**
+   * Pure helper: compute the patch and human-readable changes list
+   * that should be applied to `matched` when syncing it against the
+   * `inc` record from an АСУ РСО import.
+   *
+   * Rules:
+   *   - Every field the user has previously edited by hand (tracked in
+   *     `matched.manualFields`) is SKIPPED — keeping the user's value.
+   *   - classId / classNumber are NEVER locked: class moves from АСУ
+   *     РСО always apply.  Caller passes `classPatch` (see below) to
+   *     splice them into the returned patch if the class changed.
+   *   - fullName is locked by `manualFields.fullName`.
+   *   - Any extended field listed in ASU_EXT_FIELDS is locked by its
+   *     own key in `manualFields`.
+   *
+   * `classPatch` is expected to be an object of the shape
+   *   { classId: '...', classNumber: null }  (class changed)  OR null.
+   * The `changes` array is pre-seeded with the class-change message
+   * when relevant; callers append the final entry to report.moved /
+   * report.updated.
+   *
+   * Exported (for tests) on window.GTOSchool.buildAsuUpdatePatch.
+   */
+  function buildAsuUpdatePatch(matched, inc, classPatch) {
+    var patch = {};
+    var changes = [];
+    var manualFields = (matched && matched.manualFields && typeof matched.manualFields === 'object') ? matched.manualFields : {};
+
+    if (classPatch && classPatch.classId) {
+      patch.classId = classPatch.classId;
+      patch.classNumber = (classPatch.classNumber === undefined) ? null : classPatch.classNumber;
+      if (classPatch.changeLabel) changes.push(classPatch.changeLabel);
+    }
+
+    /* ФИО: protected by manualFields.fullName. */
+    if (normalizeName(matched.fullName) !== normalizeName(inc.fullName) && !manualFields.fullName) {
+      patch.fullName = inc.fullName;
+      changes.push('ФИО: ' + matched.fullName + ' → ' + inc.fullName);
+    }
+
+    /* Extended fields: each key individually protected by manualFields[key]. */
+    ASU_EXT_FIELDS.forEach(function (f) {
+      if (manualFields[f]) return;
+      if (inc[f] !== undefined && inc[f] !== '') {
+        var oldVal = matched[f] || '';
+        if (oldVal !== inc[f]) {
+          patch[f] = inc[f];
+        }
+      }
+    });
+
+    return { patch: patch, changes: changes };
   }
 
   /**
@@ -410,35 +502,23 @@
 
       if (matched) {
         matchedStudentIds.add(matched.id);
-        var changes = [];
-        var patch = {};
 
-        /* Check if class changed */
+        /* Class is never locked — always follow АСУ РСО. */
         var matchedClass = allClasses.find(function (c) { return c.id === matched.classId; });
+        var classPatch = null;
         if (matchedClass && normalizeClassName(matchedClass.name) !== normalizedClassName) {
-          patch.classId = targetClass.id;
-          patch.classNumber = null;
-          changes.push('класс: ' + matchedClass.name + ' → ' + targetClass.name);
+          classPatch = {
+            classId: targetClass.id,
+            classNumber: null,
+            changeLabel: 'класс: ' + matchedClass.name + ' → ' + targetClass.name
+          };
         }
 
-        /* Update FIO if changed (but preserve UIN!) */
-        if (normalizeName(matched.fullName) !== normalizedInc) {
-          patch.fullName = inc.fullName;
-          changes.push('ФИО: ' + matched.fullName + ' → ' + inc.fullName);
-        }
-
-        /* Sync extended ASU fields (overwrite with fresh data, preserve UIN) */
-        var extFields = ['gender', 'birthDate', 'formOfEducation', 'documentType', 'documentSeries', 'documentNumber',
-          'snils', 'residenceLocality', 'residenceStreetName', 'residenceStreetType',
-          'residenceHouse', 'residenceBuilding', 'residenceApartment'];
-        extFields.forEach(function (f) {
-          if (inc[f] !== undefined && inc[f] !== '') {
-            var oldVal = matched[f] || '';
-            if (oldVal !== inc[f]) {
-              patch[f] = inc[f];
-            }
-          }
-        });
+        /* All other fields are guarded by buildAsuUpdatePatch, which
+           skips every entry in matched.manualFields. */
+        var result = buildAsuUpdatePatch(matched, inc, classPatch);
+        var patch = result.patch;
+        var changes = result.changes;
 
         /* Count data field updates separately */
         var dataUpdated = Object.keys(patch).filter(function (k) {
@@ -733,6 +813,7 @@
     /* Import */
     importFullReplace: importFullReplace,
     syncFromAsu: syncFromAsu,
+    buildAsuUpdatePatch: buildAsuUpdatePatch,
     /* Archive */
     archiveStudent: archiveStudent,
     archiveStudents: archiveStudents,

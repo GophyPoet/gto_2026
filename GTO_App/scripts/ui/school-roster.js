@@ -145,7 +145,16 @@
       var dlg = askConfirmDialog;
       if (!dlg) {
         dlg = document.createElement('dialog');
-        dlg.className = 'dialog';
+        dlg.className = 'dialog roster-confirm-dialog';
+        /* Force explicit centering — inline styles so nothing in
+           dashboard.css can push it to the top-left corner. */
+        dlg.style.position = 'fixed';
+        dlg.style.top = '50%';
+        dlg.style.left = '50%';
+        dlg.style.transform = 'translate(-50%, -50%)';
+        dlg.style.margin = '0';
+        dlg.style.maxWidth = 'min(480px, calc(100vw - 32px))';
+        dlg.style.maxHeight = 'calc(100vh - 32px)';
         dlg.innerHTML =
           '<div class="dialog-form">' +
             '<div class="dialog-head">' +
@@ -1402,7 +1411,7 @@
       confirmText: 'Изменить'
     });
     if (!okUin) return;
-    await school.updateStudent(studentId, { uin: uin.trim() });
+    await school.updateStudent(studentId, { uin: uin.trim() }, { markManual: true });
     render();
   }
 
@@ -1459,7 +1468,7 @@
     if (!okField) return;
     var patch = {};
     patch[field] = storedVal;
-    await school.updateStudent(studentId, patch);
+    await school.updateStudent(studentId, patch, { markManual: true });
     render();
   }
 
@@ -1471,7 +1480,7 @@
     if (fullName === null) return;
     var uin = prompt('УИН:', s.uin || '');
     if (uin === null) return;
-    await school.updateStudent(studentId, { fullName: fullName.trim(), uin: uin.trim() });
+    await school.updateStudent(studentId, { fullName: fullName.trim(), uin: uin.trim() }, { markManual: true });
     render();
   }
 
